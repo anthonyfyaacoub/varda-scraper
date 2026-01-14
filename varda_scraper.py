@@ -998,10 +998,13 @@ async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
             "zip_codes_count": len(zip_codes)
         })
     
-    # Install Playwright browsers if needed (for Streamlit Cloud)
-    if progress_callback:
-        progress_callback({"status": "info", "message": "Checking Playwright browsers..."})
-    await install_playwright_browsers_if_needed(progress_callback)
+    # Check if Playwright browsers are installed (don't auto-install)
+    browsers_installed = await install_playwright_browsers_if_needed(progress_callback)
+    if not browsers_installed:
+        # Browsers not installed - stop here
+        if progress_callback:
+            progress_callback({"status": "error", "message": "Playwright browsers not installed. Please run: python -m playwright install chromium"})
+        raise RuntimeError("Playwright browsers not installed. Please run: python -m playwright install chromium")
 
     async with async_playwright() as p:
         # Use persistent browser context to maintain language and login settings

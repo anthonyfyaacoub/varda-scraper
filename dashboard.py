@@ -58,6 +58,13 @@ import time
 import warnings
 import logging
 
+# Load environment variables from .env file (for local use)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, use system env vars only
+
 # Suppress Streamlit ScriptRunContext warnings from background threads
 # This must be done before any Streamlit imports/usage
 warnings.filterwarnings("ignore", message=".*ScriptRunContext.*")
@@ -84,6 +91,25 @@ try:
         MAX_REVIEWS_PER_BUSINESS, MIN_VIOLATIONS_TO_STOP,
         OUTPUT_DIR, export_leads
     )
+except ValueError as e:
+    # API key not set - show helpful message
+    if "OPENAI_API_KEY" in str(e):
+        st.error("⚠️ OpenAI API Key not found!")
+        st.info("""
+        **To fix this:**
+        
+        1. Create a `.env` file in the project folder
+        2. Add this line:
+           ```
+           OPENAI_API_KEY=your_api_key_here
+           ```
+        3. Get your API key from: https://platform.openai.com/api-keys
+        
+        Or run `python setup.py` which will create it for you!
+        """)
+        st.stop()
+    else:
+        raise
 except Exception as e:
     st.error(f"Error importing varda_scraper: {e}")
     import traceback

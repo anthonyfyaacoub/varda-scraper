@@ -61,9 +61,19 @@ import logging
 # Load environment variables from .env file (for local use)
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # Explicitly specify encoding to avoid Windows encoding issues
+    import os as os_module
+    env_path = os_module.path.join(os_module.path.dirname(__file__), '.env')
+    if os_module.path.exists(env_path):
+        load_dotenv(env_path, encoding='utf-8')
+    else:
+        load_dotenv(encoding='utf-8')
 except ImportError:
     pass  # python-dotenv not installed, use system env vars only
+except UnicodeDecodeError:
+    # If .env file has wrong encoding, try to fix it
+    print("⚠️  Warning: .env file encoding issue detected. Please recreate it with UTF-8 encoding.")
+    pass
 
 # Suppress Streamlit ScriptRunContext warnings from background threads
 # This must be done before any Streamlit imports/usage

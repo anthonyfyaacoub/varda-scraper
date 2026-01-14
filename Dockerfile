@@ -64,8 +64,9 @@ ENV PYTHONUNBUFFERED=1
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import os, requests; port = os.getenv('PORT', '8080'); requests.get(f'http://localhost:{port}/_stcore/health')" || exit 1
 
-# Create entrypoint script to handle PORT variable
-RUN echo '#!/bin/sh\nPORT=${PORT:-8080}\nexport STREAMLIT_SERVER_PORT=$PORT\nexec streamlit run dashboard.py --server.port=$PORT --server.address=0.0.0.0' > /entrypoint.sh && chmod +x /entrypoint.sh
+# Copy entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Run Streamlit via entrypoint script
-CMD ["/entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]

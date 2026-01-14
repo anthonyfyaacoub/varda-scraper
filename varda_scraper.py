@@ -854,6 +854,46 @@ def print_violation_details(lead: dict, flagged_reviews: list):
     print(f"      {'='*60}\n")
 
 
+async def install_playwright_browsers_if_needed():
+    """Install Playwright browsers if they don't exist"""
+    import subprocess
+    import sys
+    try:
+        # Try to import playwright and check if browsers are installed
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            try:
+                # Try to launch chromium - if it fails, browsers aren't installed
+                browser = p.chromium.launch(headless=True)
+                browser.close()
+                return True  # Browsers are installed
+            except Exception:
+                # Browsers not installed, install them
+                if progress_callback:
+                    progress_callback({"status": "info", "message": "Installing Playwright browsers (this may take a minute)..."})
+                print("Installing Playwright browsers...")
+                result = subprocess.run(
+                    [sys.executable, "-m", "playwright", "install", "chromium"],
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
+                if result.returncode == 0:
+                    print("✅ Playwright browsers installed successfully")
+                    if progress_callback:
+                        progress_callback({"status": "info", "message": "✅ Playwright browsers installed successfully"})
+                    return True
+                else:
+                    print(f"❌ Failed to install browsers: {result.stderr}")
+                    if progress_callback:
+                        progress_callback({"status": "error", "message": f"Failed to install Playwright browsers: {result.stderr[:200]}"})
+                    return False
+    except Exception as e:
+        print(f"Error checking/installing browsers: {e}")
+        if progress_callback:
+            progress_callback({"status": "error", "message": f"Error installing browsers: {str(e)[:200]}"})
+        return False
+
 async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
     """
     Run the scraper for given zip codes.
@@ -922,6 +962,11 @@ async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
             "message": f"Starting scraper for {len(zip_codes)} zip code(s)",
             "zip_codes_count": len(zip_codes)
         })
+    
+    # Install Playwright browsers if needed (for Streamlit Cloud)
+    if progress_callback:
+        progress_callback({"status": "info", "message": "Checking Playwright browsers..."})
+    await install_playwright_browsers_if_needed(progress_callback)
 
     async with async_playwright() as p:
         # Use persistent browser context to maintain language and login settings

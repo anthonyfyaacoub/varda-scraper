@@ -602,55 +602,29 @@ async def install_playwright_browsers_if_needed(progress_callback=None):
     """Check if Playwright browsers are installed - don't auto-install"""
     import os
     import platform
-    import glob
     
     # Skip in cloud environments - they should install during build
     if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RENDER") or os.getenv("STREAMLIT_SERVER_PORT"):
         return True
     
-    # Check common installation paths
+    # Simple check: If ms-playwright directory exists, browsers are likely installed
+    # Playwright will handle the actual check and error if browsers aren't there
     system = platform.system()
     
     if system == "Windows":
         local_appdata = os.getenv("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local"))
         playwright_dir = os.path.join(local_appdata, "ms-playwright")
-        # Check if ms-playwright directory exists
-        if os.path.exists(playwright_dir):
-            # Look for any chromium folder
-            chromium_folders = [d for d in os.listdir(playwright_dir) if d.startswith("chromium-")]
-            if chromium_folders:
-                # Check if chrome.exe exists in any chromium folder
-                for folder in chromium_folders:
-                    chrome_exe = os.path.join(playwright_dir, folder, "chrome-win", "chrome.exe")
-                    if os.path.isfile(chrome_exe):
-                        return True
-        # Fallback: use glob pattern
-        possible_paths = [
-            os.path.join(local_appdata, "ms-playwright", "chromium-*", "chrome-win", "chrome.exe"),
-        ]
     elif system == "Darwin":  # macOS
-        possible_paths = [
-            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-mac/Chromium.app"),
-            os.path.expanduser("~/Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app"),
-        ]
+        playwright_dir = os.path.expanduser("~/.cache/ms-playwright")
+        if not os.path.exists(playwright_dir):
+            playwright_dir = os.path.expanduser("~/Library/Caches/ms-playwright")
     else:  # Linux
-        possible_paths = [
-            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
-            os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"),
-        ]
+        playwright_dir = os.path.expanduser("~/.cache/ms-playwright")
     
-    # Check if any browser exists
-    for path_pattern in possible_paths:
-        try:
-            matches = glob.glob(path_pattern)
-            if matches:
-                # Verify it exists
-                for match in matches:
-                    if os.path.isfile(match) or os.path.isdir(match):
-                        # Browsers found - return silently
-                        return True
-        except Exception:
-            continue
+    # If directory exists, assume browsers are installed
+    # Playwright will error on launch if they're not actually there
+    if os.path.exists(playwright_dir):
+        return True
     
     # Browsers not found - don't auto-install, just return False
     if progress_callback is not None:

@@ -16,6 +16,9 @@ build/
 .env
 .env.local
 
+# But include .env.example
+!.env.example
+
 # Output files
 output/
 *.csv

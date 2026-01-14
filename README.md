@@ -1,6 +1,12 @@
-# VARDA Lead Generation Scraper
+# 🛡️ VARDA Lead Generation Scraper
 
 A web scraping tool that finds businesses with Google review violations, perfect for lead generation.
+
+## 🚀 Quick Start (Local Use)
+
+**Want to run it locally?** See [README_SIMPLE.md](README_SIMPLE.md) for the easiest setup!
+
+**For colleagues:** Just share the GitHub repo and they run `python setup.py` → `streamlit run dashboard.py`
 
 ## Features
 

@@ -855,24 +855,34 @@ def print_violation_details(lead: dict, flagged_reviews: list):
 
 
 async def install_playwright_browsers_if_needed(progress_callback=None):
-    """Install Playwright browsers if they don't exist"""
+    """Install Playwright browsers if they don't exist - LOCAL USE ONLY"""
     import subprocess
     import sys
     import asyncio
     import os
-    
-    # Check if browsers are already installed by checking the path
-    browser_path = os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell")
-    if os.path.exists(browser_path):
-        return True
-    
-    # Also check alternative path
-    alt_browser_path = os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome")
     import glob
-    if glob.glob(alt_browser_path):
+    
+    # Check multiple possible browser paths
+    possible_paths = [
+        os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"),
+        os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+        os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-win/chrome.exe"),
+        os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
+    ]
+    
+    # Check if any browser exists
+    for path_pattern in possible_paths:
+        if glob.glob(path_pattern):
+            return True
+    
+    # Browsers not found, try to install them (only for local use)
+    # Skip in cloud environments - they should install during build
+    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RENDER") or os.getenv("STREAMLIT_SERVER_PORT"):
+        # In cloud, browsers should be pre-installed
+        print("⚠️  Cloud environment detected - browsers should be pre-installed")
         return True
     
-    # Browsers not found, install them
+    # Local installation
     if progress_callback is not None:
         progress_callback({"status": "info", "message": "Installing Playwright browsers (this may take 1-2 minutes)..."})
     print("Installing Playwright browsers...")
@@ -894,17 +904,20 @@ async def install_playwright_browsers_if_needed(progress_callback=None):
         else:
             error_msg = stderr.decode() if stderr else "Unknown error"
             print(f"❌ Failed to install browsers: {error_msg}")
+            print("💡 Try running manually: python -m playwright install chromium")
             if progress_callback is not None:
-                progress_callback({"status": "error", "message": f"Failed to install Playwright browsers: {error_msg[:200]}"})
+                progress_callback({"status": "error", "message": f"Failed to install Playwright browsers. Run: python -m playwright install chromium"})
             return False
     except asyncio.TimeoutError:
         error_msg = "Browser installation timed out"
         print(f"❌ {error_msg}")
+        print("💡 Try running manually: python -m playwright install chromium")
         if progress_callback is not None:
             progress_callback({"status": "error", "message": error_msg})
         return False
     except Exception as e:
         print(f"Error installing browsers: {e}")
+        print("💡 Try running manually: python -m playwright install chromium")
         if progress_callback is not None:
             progress_callback({"status": "error", "message": f"Error installing browsers: {str(e)[:200]}"})
         return False

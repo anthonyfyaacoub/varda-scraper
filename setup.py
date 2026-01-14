@@ -53,25 +53,65 @@ def main():
         print("\n❌ Failed to install dependencies. Check requirements.txt")
         sys.exit(1)
     
-    # Step 2: Install Playwright browsers
-    if not run_command(
-        f"{sys.executable} -m playwright install chromium",
-        "Installing Playwright Chromium browser"
-    ):
-        print("\n❌ Failed to install Playwright browsers.")
-        print("   You may need to install system dependencies manually.")
-        print("   See README.md for details.")
+    # Step 2: Install Playwright browsers (with timeout and better progress)
+    print("\n" + "="*60)
+    print("📦 Installing Playwright Chromium browser")
+    print("="*60)
+    print("⏳ This may take 2-5 minutes. Please be patient...")
+    print("   (Downloading ~200MB of browser files)")
+    
+    try:
+        # Use subprocess with timeout for better control
+        import subprocess
+        process = subprocess.Popen(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        # Print output in real-time
+        for line in process.stdout:
+            print(line, end='', flush=True)
+        
+        process.wait()
+        
+        if process.returncode == 0:
+            print("\n✅ Playwright browsers installed successfully!")
+        else:
+            print("\n⚠️  Playwright installation had issues, but continuing...")
+            print("   You can install manually later with: python -m playwright install chromium")
+    except subprocess.TimeoutExpired:
+        print("\n⏱️  Installation is taking longer than expected...")
+        print("   This is normal. You can:")
+        print("   1. Wait for it to finish")
+        print("   2. Cancel and run manually: python -m playwright install chromium")
+        process.kill()
         sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Installation cancelled by user.")
+        print("   You can install manually later with: python -m playwright install chromium")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n⚠️  Error during installation: {e}")
+        print("   You can install manually later with: python -m playwright install chromium")
+        print("   Continuing setup anyway...")
     
     # Step 3: Install system dependencies (optional, platform-specific)
+    print("\n" + "="*60)
+    print("📋 System Dependencies Check")
+    print("="*60)
     if sys.platform.startswith('linux'):
-        print("\n⚠️  Linux detected. You may need to install system dependencies.")
-        print("   Run: playwright install-deps chromium")
+        print("⚠️  Linux detected. You may need to install system dependencies.")
+        print("   If browser doesn't work, run: playwright install-deps chromium")
         print("   Or install manually (see README.md)")
     elif sys.platform == 'darwin':
-        print("\n✅ macOS detected. System dependencies should be fine.")
+        print("✅ macOS detected. System dependencies should be fine.")
     elif sys.platform == 'win32':
-        print("\n✅ Windows detected. System dependencies should be fine.")
+        print("✅ Windows detected. System dependencies should be fine.")
+        print("   If you encounter issues, try running as Administrator.")
     
     # Step 4: Create .env file if it doesn't exist
     if not os.path.exists('.env'):

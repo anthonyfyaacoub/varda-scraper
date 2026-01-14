@@ -172,11 +172,25 @@ Results are saved to `output/` folder:
 
 ## 🐛 Troubleshooting
 
-### "Playwright browsers not found"
+### "Playwright browsers not found" or installation stuck
 
+**Option 1: Use the standalone installer**
+```bash
+python install_browsers.py
+```
+
+**Option 2: Install manually**
 ```bash
 python -m playwright install chromium
 ```
+
+**Option 3: If stuck, cancel and try:**
+```bash
+pip install --upgrade playwright
+python -m playwright install chromium
+```
+
+**Windows users:** Try running PowerShell/CMD as Administrator
 
 ### "Module not found"
 

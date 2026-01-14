@@ -72,8 +72,21 @@
 
 ## Quick Troubleshooting
 
-**"Playwright not found"**
+**"Playwright not found" or installation stuck**
+
+Use the standalone installer:
 ```bash
+python install_browsers.py
+```
+
+Or install manually:
+```bash
+python -m playwright install chromium
+```
+
+If stuck, cancel and try:
+```bash
+pip install --upgrade playwright
 python -m playwright install chromium
 ```
 

@@ -52,18 +52,17 @@ COPY . .
 # Create output directory
 RUN mkdir -p output
 
-# Expose Streamlit port
-EXPOSE 8501
+# Expose Streamlit port (Railway uses PORT env var)
+EXPOSE 8080
 
 # Set environment variables
-ENV STREAMLIT_SERVER_PORT=8501
 ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 ENV HEADLESS_MODE=true
 ENV PYTHONUNBUFFERED=1
 
-# Health check
+# Health check (uses PORT env var)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8501/_stcore/health')" || exit 1
+    CMD python -c "import os, requests; port = os.getenv('PORT', '8080'); requests.get(f'http://localhost:{port}/_stcore/health')" || exit 1
 
-# Run Streamlit
-CMD ["streamlit", "run", "dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Run Streamlit (Railway provides PORT env var)
+CMD sh -c "streamlit run dashboard.py --server.port=\${PORT:-8080} --server.address=0.0.0.0"

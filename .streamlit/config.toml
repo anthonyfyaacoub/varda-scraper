@@ -1,5 +1,5 @@
 [server]
-port = 8501
+# Port will be set via command line or PORT env var
 address = "0.0.0.0"
 enableCORS = false
 enableXsrfProtection = true

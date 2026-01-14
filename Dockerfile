@@ -30,6 +30,9 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libxshmfence1 \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,9 +42,9 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
+# Install Playwright browsers (this takes a few minutes)
 RUN playwright install chromium
-RUN playwright install-deps chromium
+RUN playwright install-deps chromium || true
 
 # Copy application code
 COPY . .

@@ -2,13 +2,18 @@
 
 This guide covers multiple deployment options to keep your scraper running 24/7, even when your laptop is off.
 
+## ⚠️ Important Note
+
+**Streamlit Cloud has limitations with Playwright**. For reliable Playwright support, we recommend **Docker deployment** (Railway.app, Render.com, or DigitalOcean).
+
 ## 📋 Table of Contents
 
-1. [Streamlit Cloud (Easiest - FREE)](#streamlit-cloud-easiest---free)
-2. [Docker Deployment](#docker-deployment)
-3. [VPS/Cloud Server](#vpscloud-server)
-4. [Railway.app](#railwayapp)
-5. [Heroku](#heroku)
+1. [🐳 Docker Deployment (RECOMMENDED)](#docker-deployment-recommended)
+2. [🚂 Railway.app (Easiest Docker)](#railwayapp-easiest-docker)
+3. [🌐 Render.com (Free Docker)](#rendercom-free-docker)
+4. [Streamlit Cloud (Limited Playwright Support)](#streamlit-cloud-limited-playwright-support)
+5. [VPS/Cloud Server](#vpscloud-server)
+6. [Heroku](#heroku)
 
 ---
 

@@ -859,40 +859,44 @@ async def install_playwright_browsers_if_needed(progress_callback=None):
     import subprocess
     import sys
     import asyncio
+    import os
+    
+    # Check if browsers are already installed by checking the path
+    browser_path = os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell")
+    if os.path.exists(browser_path):
+        return True
+    
+    # Also check alternative path
+    alt_browser_path = os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome")
+    import glob
+    if glob.glob(alt_browser_path):
+        return True
+    
+    # Browsers not found, install them
+    if progress_callback is not None:
+        progress_callback({"status": "info", "message": "Installing Playwright browsers (this may take 1-2 minutes)..."})
+    print("Installing Playwright browsers...")
+    
     try:
-        # Try to import playwright and check if browsers are installed
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            try:
-                # Try to launch chromium - if it fails, browsers aren't installed
-                browser = p.chromium.launch(headless=True)
-                browser.close()
-                return True  # Browsers are installed
-            except Exception:
-                # Browsers not installed, install them
-                if progress_callback is not None:
-                    progress_callback({"status": "info", "message": "Installing Playwright browsers (this may take 1-2 minutes)..."})
-                print("Installing Playwright browsers...")
-                
-                # Run playwright install in a subprocess (async)
-                process = await asyncio.create_subprocess_exec(
-                    sys.executable, "-m", "playwright", "install", "chromium",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
-                
-                if process.returncode == 0:
-                    print("✅ Playwright browsers installed successfully")
-                    if progress_callback is not None:
-                        progress_callback({"status": "info", "message": "✅ Playwright browsers installed successfully"})
-                    return True
-                else:
-                    error_msg = stderr.decode() if stderr else "Unknown error"
-                    print(f"❌ Failed to install browsers: {error_msg}")
-                    if progress_callback is not None:
-                        progress_callback({"status": "error", "message": f"Failed to install Playwright browsers: {error_msg[:200]}"})
-                    return False
+        # Run playwright install in a subprocess (async)
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "playwright", "install", "chromium",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
+        
+        if process.returncode == 0:
+            print("✅ Playwright browsers installed successfully")
+            if progress_callback is not None:
+                progress_callback({"status": "info", "message": "✅ Playwright browsers installed successfully"})
+            return True
+        else:
+            error_msg = stderr.decode() if stderr else "Unknown error"
+            print(f"❌ Failed to install browsers: {error_msg}")
+            if progress_callback is not None:
+                progress_callback({"status": "error", "message": f"Failed to install Playwright browsers: {error_msg[:200]}"})
+            return False
     except asyncio.TimeoutError:
         error_msg = "Browser installation timed out"
         print(f"❌ {error_msg}")
@@ -900,7 +904,7 @@ async def install_playwright_browsers_if_needed(progress_callback=None):
             progress_callback({"status": "error", "message": error_msg})
         return False
     except Exception as e:
-        print(f"Error checking/installing browsers: {e}")
+        print(f"Error installing browsers: {e}")
         if progress_callback is not None:
             progress_callback({"status": "error", "message": f"Error installing browsers: {str(e)[:200]}"})
         return False

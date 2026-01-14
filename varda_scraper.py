@@ -14,15 +14,26 @@ from playwright.async_api import async_playwright
 from openai import OpenAI
 import pandas as pd
 
+# Load environment variables from .env file (for local use)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, use system env vars only
+
 #######################################################################
 # 🔑 CONFIGURATION - EDIT THIS SECTION
 #######################################################################
 
-# API Key - Use environment variable for security (REQUIRED for cloud deployment)
-# Set OPENAI_API_KEY environment variable - NEVER hardcode your API key!
+# API Key - Load from .env file or environment variable
+# For local use: Create .env file with OPENAI_API_KEY=your_key_here
+# For cloud: Set OPENAI_API_KEY environment variable
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY environment variable is required! Set it in your environment or Streamlit secrets.")
+    print("⚠️  WARNING: OPENAI_API_KEY not found!")
+    print("   Create a .env file with: OPENAI_API_KEY=your_key_here")
+    print("   Or set environment variable: export OPENAI_API_KEY=your_key_here")
+    # Don't raise error immediately - let dashboard handle it gracefully
 
 # Location
 AREAS = ["Paris, France"]  # Add more areas like "Paris suburbs, France" or "Madrid, Spain"

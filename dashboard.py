@@ -665,12 +665,19 @@ with col1:
                 status = log.get("status", "info")
                 status_icon = {
                     "starting": "🔄",
+                    "searching": "🔍",
                     "area_start": "📍",
                     "category_start": "🏷️",
                     "businesses_found": "✅",
+                    "business_found_filtered": "✓",
+                    "business_filtered_out": "✗",
                     "collecting_details": "📊",
                     "filtering": "🔍",
                     "business_processing": "🔍",
+                    "scraping_reviews": "📝",
+                    "reviews_collected": "📝",
+                    "classifying_reviews": "🤖",
+                    "violation_found": "🚩",
                     "lead_found": "🚩",
                     "completed": "✅",
                     "error": "❌",
@@ -684,12 +691,18 @@ with col1:
                 data = log.get("data", {})
                 if status == "businesses_found" and "count" in data:
                     extra_info = f" ({data['count']} businesses)"
-                elif status == "collecting_details":
+                elif status == "collecting_details" or status == "classifying_reviews":
                     if "current" in data and "total" in data:
                         extra_info = f" ({data['current']}/{data['total']})"
                 elif status == "business_processing":
                     if "current" in data and "total" in data:
-                        extra_info = f" ({data['current']}/{data['total']})"
+                        extra_info = f" [{data['current']}/{data['total']}]"
+                elif status == "reviews_collected" and "count" in data:
+                    extra_info = f" ({data['count']} reviews)"
+                elif status == "violation_found" and "violation_count" in data:
+                    extra_info = f" (Total: {data['violation_count']})"
+                elif status == "lead_found" and "violations_count" in data:
+                    extra_info = f" ({data['violations_count']} violations)"
                 
                 log_text += f"[{timestamp}] {status_icon} {message}{extra_info}\n"
             

@@ -287,7 +287,7 @@ async def safe_goto(page, url: str, retries: int = 2):
     return False
 
 
-async def scrape_all_businesses(page, zip_code: str, category: str, country: str = "France", min_rating: float = 0.0, max_rating: float = 5.0, min_reviews: int = 0) -> list:
+async def scrape_all_businesses(page, zip_code: str, category: str, country: str = "France", min_rating: float = 0.0, max_rating: float = 5.0, min_reviews: int = 0, progress_callback=None) -> list:
     """
     Scrape businesses from Google Maps search results.
     Extracts rating and review count directly from search results for immediate filtering.
@@ -319,6 +319,8 @@ async def scrape_all_businesses(page, zip_code: str, category: str, country: str
         return []
 
     print(f"   📜 Scrolling to find businesses (filtering: {min_rating}-{max_rating}⭐, {min_reviews}+ reviews)...")
+    if progress_callback:
+        progress_callback({"status": "filtering", "message": f"Scrolling and filtering businesses ({min_rating}-{max_rating}⭐, {min_reviews}+ reviews)..."})
     
     max_scroll_attempts = 100
     scroll_attempt = 0
@@ -410,10 +412,26 @@ async def scrape_all_businesses(page, zip_code: str, category: str, country: str
                         "rating": rating,
                         "review_count": review_count
                     })
+                    if progress_callback:
+                        progress_callback({
+                            "status": "business_found_filtered",
+                            "business_name": name[:50],
+                            "rating": rating,
+                            "review_count": review_count,
+                            "message": f"✓ Found: {name[:50]} ({rating}⭐, {review_count} reviews)"
+                        })
                 else:
                     # Log filtered businesses for debugging
                     if rating > 0 or review_count > 0:
                         print(f"      ⏭️  Filtered: {name[:30]}... - ⭐{rating} ({review_count} reviews)", end="\r")
+                        if progress_callback and scroll_attempt % 5 == 0:  # Only log every 5th filtered to avoid spam
+                            progress_callback({
+                                "status": "business_filtered_out",
+                                "business_name": name[:50],
+                                "rating": rating,
+                                "review_count": review_count,
+                                "message": f"✗ Filtered: {name[:50]} ({rating}⭐, {review_count} reviews) - outside range"
+                            })
             except Exception as e:
                 pass
 
@@ -422,6 +440,12 @@ async def scrape_all_businesses(page, zip_code: str, category: str, country: str
         else:
             no_new_count = 0
             print(f"   📍 Found {len(businesses)} matching businesses...", end="\r")
+            if progress_callback:
+                progress_callback({
+                    "status": "businesses_found",
+                    "count": len(businesses),
+                    "message": f"Found {len(businesses)} matching businesses so far..."
+                })
         
         last_count = len(businesses)
         scroll_attempt += 1
@@ -980,7 +1004,7 @@ async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
                         progress_callback({"status": "category_start", "category": category, "message": f"Searching {category} in {zip_code}"})
 
                     # Scrape businesses with IMMEDIATE filtering - rating extracted from search results
-                    businesses = await scrape_all_businesses(page, zip_code, category, country, min_rating, max_rating, min_reviews)
+                    businesses = await scrape_all_businesses(page, zip_code, category, country, min_rating, max_rating, min_reviews, progress_callback)
                     
                     # Count total found (before filtering) - we'll estimate based on what we filtered
                     # Note: We can't know total without filtering, so we'll track filtered separately
@@ -1049,10 +1073,26 @@ async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
                             review_url = f"{review_url}{separator}hl=en"
                         
                         if not await safe_goto(page, review_url):
+                            if progress_callback:
+                                progress_callback({
+                                    "status": "error",
+                                    "message": f"⚠️ Could not load reviews page for {name_short}"
+                                })
                             continue
                         print(f"      📝 Scraping reviews (sorted by worst rating first)...")
+                        if progress_callback:
+                            progress_callback({
+                                "status": "scraping_reviews",
+                                "message": f"📝 Scraping reviews for {name_short}..."
+                            })
                         reviews = await scrape_reviews(page, max_reviews_per_business)
                         print(f"      📝 Got {len(reviews)} reviews")
+                        if progress_callback:
+                            progress_callback({
+                                "status": "reviews_collected",
+                                "count": len(reviews),
+                                "message": f"📝 Collected {len(reviews)} reviews for {name_short}"
+                            })
                         
                         # Show rating distribution
                         if reviews:
@@ -1071,8 +1111,20 @@ async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
                         flagged_reviews = []
                         reviews_classified = 0
 
+                        if progress_callback:
+                            progress_callback({
+                                "status": "classifying_reviews",
+                                "message": f"🤖 Classifying {len(reviews)} reviews for {name_short}..."
+                            })
                         for j, review in enumerate(reviews):
                             print(f"         {j+1}/{len(reviews)} ({review['rating']}⭐)...", end="\r")
+                            if progress_callback and j % 3 == 0:  # Update every 3rd review to avoid spam
+                                progress_callback({
+                                    "status": "classifying_reviews",
+                                    "current": j + 1,
+                                    "total": len(reviews),
+                                    "message": f"🤖 Classifying review {j+1}/{len(reviews)} for {name_short}..."
+                                })
                             classification = classify_review(review["reviewer_name"], review["rating"], review["text"], review["date"])
                             stats["reviews"] += 1
                             reviews_classified += 1
@@ -1082,11 +1134,23 @@ async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
                                 stats["violations"] += 1
                                 flagged_reviews.append({**review, "classification": classification})
                                 
+                                if progress_callback:
+                                    progress_callback({
+                                        "status": "violation_found",
+                                        "violation_count": len(flagged_reviews),
+                                        "message": f"🚩 Violation #{len(flagged_reviews)} found in {name_short}'s reviews"
+                                    })
+                                
                                 # Early exit: if we found enough violations, stop classifying
                                 if len(flagged_reviews) >= min_violations_to_stop:
                                     remaining = len(reviews) - (j + 1)
                                     stats["reviews_skipped"] = stats.get("reviews_skipped", 0) + remaining
                                     print(f"         ✅ Found {len(flagged_reviews)} violations, stopping early...", end="\r")
+                                    if progress_callback:
+                                        progress_callback({
+                                            "status": "info",
+                                            "message": f"✅ Found {min_violations_to_stop} violations, stopping analysis"
+                                        })
                                     break
 
                             await sleep(100)
@@ -1113,6 +1177,14 @@ async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
                             
                             # Print detailed violation information to console
                             print_violation_details(lead, flagged_reviews)
+                            
+                            if progress_callback:
+                                progress_callback({
+                                    "status": "lead_found",
+                                    "lead": lead,
+                                    "violations_count": len(flagged_reviews),
+                                    "message": f"🚩 LEAD FOUND: {lead['name']} - {len(flagged_reviews)} violation(s) detected!"
+                                })
                             
                             # Save immediately to CSV for real-time viewing
                             try:

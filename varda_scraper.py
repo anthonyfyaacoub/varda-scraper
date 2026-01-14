@@ -65,735 +65,469 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./output")
 #######################################################################
 
 CATEGORIES = {
+    # Tier 1 - Restaurants (highest priority)
     1: [
-        # Restaurants (high volume of reviews)
-        "restaurant", "bistro", "brasserie", "sushi restaurant", "indian restaurant",
-        # Pharmacies (medical reputation, sensitive to scam/thief accusations)
-        "pharmacy",
-        # Car Repair / Garages (often attacked for overcharging)
-        "car repair", "auto repair shop", "garage", "midas", "speedy", "mechanic",
-        # Dentists / Orthodontists (high ticket service, reputation vital)
-        "dentist", "orthodontist",
-        # Real Estate Agencies (trust is their currency)
-        "real estate agency",
-        # Hair Salons / Barbers (emotional business, sensitive to bad pictures)
-        "hair salon", "barber shop",
-        # Car Dealerships (high value sales)
-        "car dealership",
-        # Aesthetic Centers (high trust needed)
-        "aesthetic clinic", "laser clinic", "botox clinic", "cryotherapy",
-        # Veterinarians (emotional, pet owners leave very long reviews)
-        "veterinarian",
-        # Renovation / Plumbers / Locksmiths (emergency services, often called scammers)
-        "plumber", "locksmith", "renovation contractor"
+        "restaurant",
+        "cafe",
+        "bistro",
+        "brasserie",
+        "pizzeria",
+        "fast food",
+        "bakery",
+        "bar",
     ],
-    2: [],  # Reserved for future use
-    3: [],  # Reserved for future use
+    # Tier 2 - Beauty & Personal Care
+    2: [
+        "hair salon",
+        "nail salon",
+        "beauty salon",
+        "spa",
+        "barbershop",
+        "cosmetics",
+        "tattoo",
+    ],
+    # Tier 3 - Services
+    3: [
+        "car repair",
+        "auto repair",
+        "mechanic",
+        "plumber",
+        "electrician",
+        "locksmith",
+        "dry cleaner",
+        "laundry",
+        "pharmacy",
+        "dentist",
+        "veterinarian",
+        "pet groomer",
+        "gym",
+        "fitness",
+        "yoga",
+        "massage",
+        "acupuncture",
+        "chiropractor",
+        "lawyer",
+        "accountant",
+        "real estate",
+        "moving company",
+        "cleaning service",
+        "landscaping",
+        "roofer",
+        "contractor",
+    ],
 }
 
-#######################################################################
-# AI CLASSIFIER
-#######################################################################
+# Get all categories as a flat list for easy access
+ALL_CATEGORIES = [cat for tier_cats in CATEGORIES.values() for cat in tier_cats]
 
-_client = None
+#######################################################################
+# HELPER FUNCTIONS
+#######################################################################
 
 def get_openai_client():
-    """Lazy initialization of OpenAI client"""
-    global _client
-    if _client is None:
-        _client = OpenAI(api_key=OPENAI_API_KEY)
-    return _client
+    """Lazy initialization of OpenAI client to avoid import errors"""
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY is required!")
+    return OpenAI(api_key=OPENAI_API_KEY)
 
-GOOGLE_POLICY_PROMPT = """You are an expert at analyzing Google Business reviews for policy violations.
+# Lazy client initialization
+_client = None
 
-Based on Google's official Maps User Generated Content Policy, reviews can be removed if they contain:
-
-## DECEPTIVE CONTENT
-1. **FAKE_ENGAGEMENT**: Fake reviews, paid reviews, bot content, not based on real experience
-2. **CONFLICT_OF_INTEREST**: Reviews from competitors, employees, business owners
-3. **IMPERSONATION**: Pretending to be someone else
-4. **MISINFORMATION**: False health/medical claims, deceptive content
-5. **MISREPRESENTATION**: False claims about products/services
-
-## INAPPROPRIATE CONTENT
-6. **HARASSMENT**: Threats, doxxing, personal attacks
-7. **HATE_SPEECH**: Attacks on protected groups (race, religion, gender, etc.)
-8. **OFFENSIVE_CONTENT**: Deliberate provocation, unsubstantiated criminal accusations
-9. **OBSCENITY_PROFANITY**: Profane language used to offend
-10. **SEXUALLY_EXPLICIT**: Sexual content
-11. **VIOLENCE_GORE**: Graphic violence, animal cruelty
-
-## OTHER VIOLATIONS
-12. **OFF_TOPIC**: Political commentary, rants, not about the business
-13. **SPAM_ADVERTISING**: Promotional content, links, phone numbers
-14. **PERSONAL_INFORMATION**: Posting others' private info
-15. **DANGEROUS_CONTENT**: Content promoting harm or illegal activities
-
-Respond with ONLY valid JSON:
-{
-  "has_violation": true/false,
-  "violation_types": ["CATEGORY_NAME"],
-  "confidence": 0.0-1.0,
-  "reasoning": "Brief explanation for removal request"
-}
-
-IMPORTANT:
-- Low star rating alone is NOT a violation
-- Negative factual experiences are NOT violations
-- Only flag CLEAR policy violations"""
-
-
-def classify_review(reviewer_name: str, rating: int, text: str, date: str) -> dict:
+def classify_review(review_text: str, rating: float) -> dict:
+    """
+    Classify a review to determine if it contains Google review policy violations.
+    Returns a dict with 'is_violation', 'confidence', 'violation_types', and 'reasoning'.
+    """
+    if not review_text or len(review_text.strip()) < 10:
+        return {
+            "is_violation": False,
+            "confidence": 0.0,
+            "violation_types": [],
+            "reasoning": "Review text too short or empty"
+        }
+    
     try:
         client = get_openai_client()
+        
+        prompt = f"""You are an expert at detecting Google review policy violations. Analyze the following review and determine if it violates Google's review policies.
+
+Review Text: "{review_text}"
+Rating: {rating}/5
+
+Google's review policies prohibit:
+1. Spam and fake content (fake reviews, duplicate reviews, reviews from fake accounts)
+2. Off-topic reviews (reviews that don't relate to the business or experience)
+3. Restricted content (illegal content, dangerous content, sexually explicit content, offensive content, hate speech)
+4. Conflict of interest (reviews by competitors, reviews by employees/owners, reviews incentivized by discounts)
+5. Impersonation (pretending to be someone else)
+
+Analyze this review and respond ONLY with valid JSON in this exact format:
+{{
+    "is_violation": true/false,
+    "confidence": 0.0-1.0,
+    "violation_types": ["type1", "type2"] or [],
+    "reasoning": "Brief explanation of why this is or isn't a violation"
+}}
+
+Be strict but fair. Only flag clear violations. If unsure, set is_violation to false and lower confidence."""
+
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": GOOGLE_POLICY_PROMPT},
-                {"role": "user", "content": f'Review by "{reviewer_name}" ({rating} stars, {date}):\n"{text}"'},
+                {"role": "system", "content": "You are an expert at detecting Google review policy violations. Always respond with valid JSON only."},
+                {"role": "user", "content": prompt}
             ],
-            temperature=0.1,
-            max_tokens=400,
+            temperature=0.3,
+            max_tokens=300
         )
-        content = response.choices[0].message.content or ""
-        clean_json = content.replace("```json", "").replace("```", "").strip()
-        result = json.loads(clean_json)
+        
+        result_text = response.choices[0].message.content.strip()
+        
+        # Try to extract JSON from response
+        json_match = re.search(r'\{[^}]+\}', result_text, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+        else:
+            # Fallback: try parsing the whole response
+            result = json.loads(result_text)
+        
+        # Validate result structure
+        if not isinstance(result, dict):
+            raise ValueError("Invalid response format")
+        
         return {
-            "has_violation": result.get("has_violation", False),
+            "is_violation": result.get("is_violation", False),
+            "confidence": float(result.get("confidence", 0.0)),
             "violation_types": result.get("violation_types", []),
-            "confidence": result.get("confidence", 0.0),
-            "reasoning": result.get("reasoning", ""),
+            "reasoning": result.get("reasoning", "No reasoning provided")
         }
+        
     except Exception as e:
-        return {"has_violation": False, "violation_types": [], "confidence": 0.0, "reasoning": f"Error: {e}"}
+        # If classification fails, default to not a violation
+        print(f"      Warning: Classification error for review: {str(e)[:100]}")
+        return {
+            "is_violation": False,
+            "confidence": 0.0,
+            "violation_types": [],
+            "reasoning": f"Classification error: {str(e)[:100]}"
+        }
 
 
-#######################################################################
-# SCRAPER FUNCTIONS
-#######################################################################
-
-async def sleep(ms: int):
-    await asyncio.sleep(ms / 1000)
-
-
-async def accept_cookies(page):
-    # Try multiple selectors and be more aggressive
-    selectors = [
-        'button:has-text("Accept all")',
-        'button:has-text("Aceptar todo")',
-        'button:has-text("Tout accepter")',
-        'button[aria-label*="Accept all"]',
-        'button[aria-label*="Aceptar todo"]',
-        'button:has-text("Accept")',
-        'button:has-text("Aceptar")',
-        # Try by button text content
-        'button',
-    ]
-    
-    for selector in selectors:
-        try:
-            if selector == 'button':
-                # For the generic button selector, check text content
-                buttons = await page.locator('button').all()
-                for btn in buttons:
-                    text = await btn.text_content() or ""
-                    if any(phrase in text.lower() for phrase in ["accept all", "aceptar todo", "accept", "aceptar"]):
-                        if await btn.is_visible(timeout=1000):
-                            await btn.click()
-                            await sleep(2000)
-                            return
-            else:
-                btn = page.locator(selector)
-                if await btn.is_visible(timeout=2000):
-                    await btn.click()
-                    await sleep(2000)
-                    return
-        except:
-            continue
-    
-    # If still not found, try clicking any visible button in the cookie dialog area
+async def scrape_business_details(page, business_url: str) -> dict:
+    """Scrape detailed information from a business page"""
     try:
-        cookie_area = page.locator('div[role="dialog"], div[jsaction*="cookie"]')
-        if await cookie_area.is_visible(timeout=2000):
-            buttons = await cookie_area.locator('button').all()
-            for btn in buttons:
-                text = await btn.text_content() or ""
-                if any(phrase in text.lower() for phrase in ["accept", "aceptar", "all", "todo"]):
-                    await btn.click()
-                    await sleep(2000)
-                    return
-    except:
-        pass
-
-
-async def check_and_handle_google_verification(page):
-    """
-    Check for Google verification prompts (CAPTCHA, "verify you're not a robot", etc.)
-    and wait for user to manually solve it.
-    """
-    verification_selectors = [
-        'text="verify you\'re not a robot"',
-        'text="verify"',
-        'text="I\'m not a robot"',
-        'iframe[title*="reCAPTCHA"]',
-        'iframe[title*="challenge"]',
-        'div:has-text("unusual traffic")',
-        'div:has-text("suspicious activity")',
-        'button:has-text("Verify")',
-    ]
-    
-    for selector in verification_selectors:
+        await page.goto(business_url, wait_until="networkidle", timeout=30000)
+        await asyncio.sleep(2)  # Give page time to load
+        
+        details = {
+            "website": "",
+            "phone": "",
+            "email": "",
+            "rating": 0.0,
+            "review_count": 0
+        }
+        
+        # Get rating and review count
         try:
-            element = page.locator(selector)
-            if await element.is_visible(timeout=2000):
-                print("\n⚠️  Google verification detected!")
-                print("   Please solve the CAPTCHA/verification in the browser window.")
-                print("   Waiting for you to complete it...")
-                
-                # Wait for verification to be completed
-                max_wait = 300  # 5 minutes max wait
-                waited = 0
-                while waited < max_wait:
-                    try:
-                        if not await element.is_visible(timeout=1000):
-                            print("   ✅ Verification appears to be completed!")
-                            await sleep(2000)
-                            return True
-                    except:
-                        # Element might have disappeared
-                        print("   ✅ Verification appears to be completed!")
-                        await sleep(2000)
-                        return True
-                    await sleep(2000)
-                    waited += 2
-                    if waited % 30 == 0:
-                        print(f"   ⏳ Still waiting... ({waited}s)")
-                
-                print("   ⚠️  Timeout waiting for verification")
-                return False
+            rating_elem = page.locator('div.F7nice span[aria-hidden="true"]').first
+            if await rating_elem.is_visible(timeout=2000):
+                rating_text = await rating_elem.text_content() or ""
+                rating_match = re.search(r'(\d[,\.]\d)', rating_text)
+                if rating_match:
+                    details["rating"] = float(rating_match.group(1).replace(",", "."))
         except:
-            continue
-    
-    return False
-
-
-async def safe_goto(page, url: str, retries: int = 2):
-    for attempt in range(retries):
+            pass
+        
         try:
-            # Add hl=en parameter if not already present to force English
-            if "hl=" not in url:
-                separator = "&" if "?" in url else "?"
-                url = f"{url}{separator}hl=en"
-            
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            await sleep(1500)
-            
-            # Check for Google verification after navigation
-            await check_and_handle_google_verification(page)
-            
-            return True
+            review_count_elem = page.locator('div.F7nice button[aria-label*="review"]').first
+            if await review_count_elem.is_visible(timeout=2000):
+                review_text = await review_count_elem.get_attribute("aria-label") or ""
+                review_match = re.search(r'([\d,\.]+)', review_text)
+                if review_match:
+                    num_str = review_match.group(1).replace(",", "").replace(".", "")
+                    details["review_count"] = int(num_str) if num_str.isdigit() else 0
         except:
-            if attempt < retries - 1:
-                await sleep(1000)
-    return False
+            pass
+        
+        # Get website
+        try:
+            website_button = page.locator('a[data-item-id="authority"]').first
+            if await website_button.is_visible(timeout=3000):
+                details["website"] = await website_button.get_attribute("href") or ""
+        except:
+            pass
+        
+        # Get phone
+        try:
+            phone_button = page.locator('button[data-item-id*="phone"]').first
+            if await phone_button.is_visible(timeout=2000):
+                phone_text = await phone_button.get_attribute("data-item-id") or ""
+                phone_match = re.search(r'tel:([+\d\s\-\(\)]+)', phone_text)
+                if phone_match:
+                    details["phone"] = phone_match.group(1)
+        except:
+            pass
+        
+        return details
+        
+    except Exception as e:
+        print(f"      Error scraping business details: {e}")
+        return {"website": "", "phone": "", "email": "", "rating": 0.0, "review_count": 0}
 
 
-async def scrape_all_businesses(page, zip_code: str, category: str, country: str = "France", min_rating: float = 0.0, max_rating: float = 5.0, min_reviews: int = 0, progress_callback=None) -> list:
-    """
-    Scrape businesses from Google Maps search results.
-    Extracts rating and review count directly from search results for immediate filtering.
-    """
-    search_query = f"{category} {zip_code} {country}"
-    # Force English language with hl parameter
-    url = f"https://www.google.com/maps/search/{search_query.replace(' ', '+')}?hl=en"
+async def scrape_email_from_website(page, website_url: str) -> str:
+    """Scrape email from a business website"""
+    if not website_url or not website_url.startswith("http"):
+        return ""
     
-    print(f"   🔍 Searching: {search_query}")
-    
-    if not await safe_goto(page, url):
-        return []
-    
-    await accept_cookies(page)
-    await sleep(1500)
-    
-    # Check for verification after initial load
-    await check_and_handle_google_verification(page)
+    try:
+        await page.goto(website_url, wait_until="networkidle", timeout=15000)
+        await asyncio.sleep(1)
+        
+        # Get page content
+        content = await page.content()
+        
+        # Look for email patterns
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        emails = re.findall(email_pattern, content)
+        
+        # Filter out common non-business emails
+        filtered_emails = [e for e in emails if not any(x in e.lower() for x in ['example.com', 'test.com', 'placeholder', 'noreply', 'no-reply'])]
+        
+        if filtered_emails:
+            return filtered_emails[0]
+        
+        return ""
+    except Exception as e:
+        return ""
 
+
+async def scrape_all_businesses(page, zip_code: str, category: str, country: str, min_rating: float, max_rating: float, min_reviews: int, progress_callback=None) -> list:
+    """Scrape all businesses from search results for a zip code and category"""
     businesses = []
-    last_count = 0
-    no_new_count = 0
-
-    results_panel = page.locator('div[role="feed"]')
-    try:
-        await results_panel.wait_for(timeout=10000)
-    except:
-        print(f"   ⚠️ No results found")
-        return []
-
-    print(f"   📜 Scrolling to find businesses (filtering: {min_rating}-{max_rating}⭐, {min_reviews}+ reviews)...")
-    if progress_callback:
-        progress_callback({"status": "filtering", "message": f"Scrolling and filtering businesses ({min_rating}-{max_rating}⭐, {min_reviews}+ reviews)..."})
     
-    max_scroll_attempts = 100
+    # Build search query
+    query = f"{category} {zip_code} {country}"
+    
+    if progress_callback:
+        progress_callback({"status": "searching", "message": f"Searching for {category} in {zip_code}..."})
+    
+    # Navigate to Google Maps search
+    search_url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
+    await page.goto(search_url, wait_until="networkidle", timeout=30000)
+    await asyncio.sleep(3)  # Wait for results to load
+    
+    # Scroll to load more results
     scroll_attempt = 0
+    max_scroll_attempts = 20
+    no_new_count = 0
     
     while no_new_count < 10 and scroll_attempt < max_scroll_attempts:
-        # Get all business items from the feed
+        items_before = len(businesses)
         items = await page.locator('div[role="feed"] > div > div > a[href*="/maps/place/"]').all()
-
+        
         for item in items:
             try:
                 name = await item.get_attribute("aria-label")
                 href = await item.get_attribute("href")
                 
-                if not name or not href:
-                    continue
-                
-                # Skip if already found
-                if any(b["name"] == name for b in businesses):
-                    continue
-                
                 # Extract rating and review count from the search result item
                 rating = 0.0
                 review_count = 0
                 
-                try:
-                    # Get the parent container that holds the business info
-                    parent_container = item.locator("xpath=ancestor::div[contains(@class, 'Nv2PK') or contains(@class, 'THOPZb')]").first
-                    
-                    # Try multiple methods to extract rating
-                    # Method 1: Look for aria-label with rating
-                    try:
-                        rating_elem = parent_container.locator('span[aria-label*="star"], span[aria-label*="rating"]').first
-                        if await rating_elem.is_visible(timeout=500):
-                            aria_label = await rating_elem.get_attribute("aria-label") or ""
-                            rating_match = re.search(r'(\d+[,\.]\d+)', aria_label)
-                            if rating_match:
-                                rating = float(rating_match.group(1).replace(",", "."))
-                    except:
-                        pass
-                    
-                    # Method 2: Look for text content with rating pattern
-                    if rating == 0.0:
-                        try:
-                            container_text = await parent_container.text_content() or ""
-                            # Look for rating pattern (e.g., "4.5" or "4,5")
-                            rating_match = re.search(r'(\d+[,\.]\d+)\s*(?:star|⭐)', container_text[:300])
-                            if not rating_match:
-                                rating_match = re.search(r'(\d+[,\.]\d+)', container_text[:200])
-                            if rating_match:
-                                rating_str = rating_match.group(1).replace(",", ".")
-                                rating = float(rating_str)
-                        except:
-                            pass
-                    
-                    # Extract review count
-                    try:
-                        # Look for review count in aria-label or text
-                        review_elem = parent_container.locator('span:has-text("("), button:has-text("(")').first
-                        if await review_elem.is_visible(timeout=500):
-                            review_text = await review_elem.text_content() or ""
-                            review_match = re.search(r'\(([\d,\.]+)\)', review_text)
-                            if review_match:
-                                review_str = review_match.group(1).replace(",", "").replace(".", "")
-                                review_count = int(review_str)
-                    except:
-                        pass
-                    
-                    # Fallback: Try to find review count in container text
-                    if review_count == 0:
-                        try:
-                            container_text = await parent_container.text_content() or ""
-                            review_match = re.search(r'\(([\d,\.]+)\s*(?:review|Review|reseña|Reseña)', container_text[:400])
-                            if not review_match:
-                                review_match = re.search(r'\(([\d,\.]+)\)', container_text[:400])
-                            if review_match:
-                                review_str = review_match.group(1).replace(",", "").replace(".", "")
-                                review_count = int(review_str)
-                        except:
-                            pass
-                except:
-                    pass
+                # Try to find rating from aria-label of the star span
+                rating_span = item.locator('span.kvMYJc')
+                if await rating_span.is_visible(timeout=100):
+                    rating_attr = await rating_span.get_attribute("aria-label")
+                    if rating_attr:
+                        match = re.search(r'(\d[,\.]\d)', rating_attr)
+                        if match:
+                            rating = float(match.group(1).replace(",", "."))
                 
-                # FILTER IMMEDIATELY - only add if matches criteria
-                if rating >= min_rating and rating <= max_rating and review_count >= min_reviews:
-                    businesses.append({
-                        "name": name,
-                        "url": href,
-                        "category": category,
-                        "rating": rating,
-                        "review_count": review_count
-                    })
-                    if progress_callback:
-                        progress_callback({
-                            "status": "business_found_filtered",
-                            "business_name": name[:50],
-                            "rating": rating,
-                            "review_count": review_count,
-                            "message": f"✓ Found: {name[:50]} ({rating}⭐, {review_count} reviews)"
-                        })
-                else:
-                    # Log filtered businesses for debugging
-                    if rating > 0 or review_count > 0:
-                        print(f"      ⏭️  Filtered: {name[:30]}... - ⭐{rating} ({review_count} reviews)", end="\r")
-                        if progress_callback and scroll_attempt % 5 == 0:  # Only log every 5th filtered to avoid spam
-                            progress_callback({
-                                "status": "business_filtered_out",
-                                "business_name": name[:50],
-                                "rating": rating,
-                                "review_count": review_count,
-                                "message": f"✗ Filtered: {name[:50]} ({rating}⭐, {review_count} reviews) - outside range"
-                            })
-            except Exception as e:
-                pass
+                # Fallback: search for rating pattern in the item's text content
+                if rating == 0.0:
+                    item_text = await item.text_content() or ""
+                    rating_match = re.search(r'(\d[,\.]\d)\s*stars?', item_text)
+                    if rating_match:
+                        rating = float(rating_match.group(1).replace(",", "."))
 
-        if len(businesses) == last_count:
+                # Extract review count
+                review_match = re.search(r'\(([\d,\.]+)\)', await item.text_content() or "")
+                if review_match:
+                    num_str = review_match.group(1)
+                    if '.' in num_str and ',' not in num_str: # Handle 1.234 for 1,234
+                        num_str = num_str.replace('.', '')
+                    else:
+                        num_str = num_str.replace(',', '')
+                    review_count = int(num_str)
+
+                # Filter immediately
+                if name and href and not any(b["name"] == name for b in businesses):
+                    if min_rating <= rating <= max_rating and review_count >= min_reviews:
+                        businesses.append({
+                            "name": name,
+                            "url": href,
+                            "category": category,
+                            "rating": rating,
+                            "review_count": review_count
+                        })
+                        if progress_callback:
+                            progress_callback({"status": "business_found_filtered", "business_name": name, "rating": rating, "review_count": review_count, "message": f"Found & filtered: {name} ({rating}⭐, {review_count} reviews)"})
+                    else:
+                        if progress_callback:
+                            progress_callback({"status": "business_filtered_out", "business_name": name, "rating": rating, "review_count": review_count, "message": f"Filtered out: {name} ({rating}⭐, {review_count} reviews) - outside criteria"})
+            except Exception as e:
+                # print(f"Error processing item: {e}")
+                pass
+        
+        # Check if we found new businesses
+        if len(businesses) == items_before:
             no_new_count += 1
         else:
             no_new_count = 0
-            print(f"   📍 Found {len(businesses)} matching businesses...", end="\r")
-            if progress_callback:
-                progress_callback({
-                    "status": "businesses_found",
-                    "count": len(businesses),
-                    "message": f"Found {len(businesses)} matching businesses so far..."
-                })
         
-        last_count = len(businesses)
+        # Scroll down to load more
         scroll_attempt += 1
-
-        # Scroll more aggressively to get more results
         try:
-            for _ in range(3):
-                await results_panel.evaluate("el => el.scrollBy(0, 1500)")
-                await sleep(500)
+            await page.evaluate("""
+                const feed = document.querySelector('div[role="feed"]');
+                if (feed) {
+                    feed.scrollTop = feed.scrollHeight;
+                }
+            """)
+            await asyncio.sleep(2)
         except:
             break
-
-        # Check for end of list
-        try:
-            end = page.locator('span:has-text("end of the list"), span:has-text("You\'ve reached the end")')
-            if await end.is_visible(timeout=500):
-                print(f"   ✅ Reached end of results")
-                break
-        except:
-            pass
-        
-        # Also check if we've scrolled enough
-        if scroll_attempt % 20 == 0:
-            print(f"   📊 Still scrolling... ({len(businesses)} matching businesses found so far)")
-
-    print(f"   ✅ Found {len(businesses)} matching businesses                    ")
+    
+    if progress_callback:
+        progress_callback({"status": "businesses_found", "count": len(businesses), "message": f"Found {len(businesses)} businesses matching criteria"})
+    
     return businesses
 
 
-async def scrape_business_details(page, business: dict) -> Optional[dict]:
-    try:
-        # Add hl=en to business URL to force English
-        biz_url = business["url"]
-        if "hl=" not in biz_url:
-            separator = "&" if "?" in biz_url else "?"
-            biz_url = f"{biz_url}{separator}hl=en"
-        
-        if not await safe_goto(page, biz_url):
-            return None
-
-        details = {
-            "name": business["name"],
-            "category": business["category"],
-            "google_maps_url": business["url"],
-            "address": "", "phone": "", "email": "", "website": "",
-            "rating": 0.0, "review_count": 0,
-        }
-
-        await sleep(1000)
-
-        # Rating and review count from header
-        try:
-            header = page.locator('div[role="main"]').first
-            header_text = await header.text_content() or ""
-            
-            rating_match = re.search(r'(\d[,\.]\d)', header_text[:100])
-            if rating_match:
-                details["rating"] = float(rating_match.group(1).replace(",", "."))
-            
-            review_match = re.search(r'\(([\d,\.]+)\)', header_text[:200])
-            if review_match:
-                num_str = review_match.group(1)
-                if '.' in num_str and ',' not in num_str:
-                    num_str = num_str.replace('.', '')
-                else:
-                    num_str = num_str.replace(',', '')
-                details["review_count"] = int(num_str)
-        except:
-            pass
-
-        # Address
-        try:
-            addr_btn = page.locator('button[data-item-id="address"]')
-            if await addr_btn.is_visible(timeout=1500):
-                addr = await addr_btn.get_attribute("aria-label") or ""
-                details["address"] = addr.replace("Address: ", "").replace("Dirección: ", "")
-        except:
-            pass
-
-        # Phone
-        try:
-            phone_btn = page.locator('button[data-item-id*="phone"]')
-            if await phone_btn.is_visible(timeout=1500):
-                phone = await phone_btn.get_attribute("aria-label") or ""
-                details["phone"] = phone.replace("Phone: ", "").replace("Teléfono: ", "")
-        except:
-            pass
-
-        # Website
-        try:
-            web_link = page.locator('a[data-item-id="authority"]')
-            if await web_link.is_visible(timeout=1500):
-                details["website"] = await web_link.get_attribute("href") or ""
-        except:
-            pass
-
-        return details
-    except:
-        return None
-
-
-async def scrape_email_from_website(page, website_url: str) -> str:
-    if not website_url:
-        return ""
-    try:
-        await page.goto(website_url, wait_until="domcontentloaded", timeout=8000)
-        await sleep(1000)
-        content = await page.content()
-        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', content)
-        filtered = [e for e in emails if not any(x in e.lower() for x in 
-            ['example', 'test', 'domain', 'sentry', 'wix', 'schema', 'wordpress'])]
-        return filtered[0] if filtered else ""
-    except:
-        return ""
-
-
 async def scrape_reviews(page, max_reviews: int) -> list:
+    """Scrape reviews from a business page"""
     reviews = []
-    start_time = time.time()
-    max_scraping_time = 120  # Maximum 2 minutes per business
     
     try:
-        reviews_tab = page.locator('button[role="tab"]:has-text("Reviews"), button[role="tab"]:has-text("Reseñas")')
-        try:
-            if await reviews_tab.is_visible(timeout=3000):
-                await reviews_tab.click()
-                await sleep(2000)
-        except:
-            pass
-
-        try:
-            # Try to find the sort button - look for various selectors
-            sort_selectors = [
-                'button[aria-label*="Sort"]',
-                'button[aria-label*="Ordenar"]',
-                'button[data-value*="sort"]',
-                'button:has-text("Sort")',
-                'button:has-text("Ordenar")',
-            ]
-            
-            sort_btn = None
-            for selector in sort_selectors:
-                try:
-                    btn = page.locator(selector)
-                    if await btn.is_visible(timeout=1000):
-                        sort_btn = btn
-                        break
-                except:
-                    continue
-            
-            if sort_btn:
-                await sort_btn.click()
-                await sleep(1000)
-                
-                # Try to find and click "Lowest rating" or "Rating" option
-                rating_options = [
-                    'div[role="menuitemradio"]:has-text("Lowest")',
-                    'div[role="menuitemradio"]:has-text("lowest")',
-                    'div[role="menuitemradio"]:has-text("Lowest rating")',
-                    'div[role="menuitemradio"]:has-text("Rating")',
-                    'div[role="menuitemradio"]:has-text("rating")',
-                    'div[role="menuitemradio"]:has-text("peor")',
-                    'div[role="menuitemradio"]:has-text("Peor")',
-                    'div[role="menuitemradio"][data-value*="rating"]',
-                    'div[role="menuitemradio"][data-value*="lowest"]',
+        # Wait for reviews section
+        await page.wait_for_selector('div[data-review-id]', timeout=10000)
+    except:
+        # No reviews found
+        return reviews
+    
+    # Scroll to load more reviews
+    scroll_attempts = 0
+    max_scrolls = 15
+    
+    while len(reviews) < max_reviews and scroll_attempts < max_scrolls:
+        # Get all review elements
+        review_elements = await page.locator('div[data-review-id]').all()
+        
+        if not review_elements:
+            break
+        
+        reviews_before = len(reviews)
+        
+        for el in review_elements:
+            try:
+                # Get reviewer name
+                reviewer = ""
+                reviewer_selectors = [
+                    "div.d4r55",
+                    "div.TSUbDb",
+                    "span.X43Kjb"
                 ]
-                
-                clicked = False
-                for option_selector in rating_options:
+                for selector in reviewer_selectors:
                     try:
-                        option = page.locator(option_selector)
-                        if await option.is_visible(timeout=1000):
-                            await option.click()
-                            await sleep(2000)
-                            print("      📉 Sorted by rating")
-                            clicked = True
-                            break
+                        reviewer_elem = el.locator(selector).first
+                        if await reviewer_elem.is_visible(timeout=100):
+                            reviewer = await reviewer_elem.text_content() or ""
+                            if reviewer.strip():
+                                break
                     except:
                         continue
                 
-                # If rating sort not found, try to find any sort option and click it
-                if not clicked:
+                # Get rating
+                rating = 0
+                rating_selectors = [
+                    "span.kvMYJc",
+                    "span[aria-label*='star']"
+                ]
+                for selector in rating_selectors:
                     try:
-                        menu_items = await page.locator('div[role="menuitemradio"]').all()
-                        for item in menu_items:
-                            text = await item.text_content() or ""
-                            aria_label = await item.get_attribute("aria-label") or ""
-                            if any(word in (text + aria_label).lower() for word in ["rating", "lowest", "worst", "peor", "calificación"]):
-                                await item.click()
-                                await sleep(2000)
-                                print("      📉 Sorted by rating")
-                                clicked = True
+                        rating_elem = el.locator(selector).first
+                        if await rating_elem.is_visible(timeout=100):
+                            rating_attr = await rating_elem.get_attribute("aria-label")
+                            if rating_attr:
+                                rating_match = re.search(r'(\d)', rating_attr)
+                                if rating_match:
+                                    rating = int(rating_match.group(1))
+                                    break
+                    except:
+                        continue
+                
+                if rating == 0:
+                    continue
+                    
+                # Get review text - try multiple selectors
+                text = ""
+                text_selectors = [
+                    "span.wiI7pd",
+                    "span[data-value]",
+                    "div.MyEned",
+                ]
+                for selector in text_selectors:
+                    try:
+                        text_elem = el.locator(selector).first
+                        if await text_elem.is_visible(timeout=100):
+                            text = await text_elem.text_content() or ""
+                            if text.strip():
                                 break
                     except:
-                        pass
+                        continue
                 
-                if not clicked:
-                    print("      ⚠️  Could not find rating sort option, proceeding with default order")
-        except Exception as e:
-            print(f"      ⚠️  Could not sort reviews: {e}")
+                date = await el.locator("span.rsqaWe").text_content() or ""
 
-        # Wait for reviews panel to load
-        reviews_panel = None
-        try:
-            reviews_panel = page.locator("div.m6QErb.DxyBCb")
-            await reviews_panel.wait_for(timeout=5000)
-        except:
-            # Try alternative selector
-            try:
-                reviews_panel = page.locator('div[role="main"]').locator('div').filter(has_text=re.compile(r'review|reseña', re.I)).first
-                await reviews_panel.wait_for(timeout=3000)
-            except:
-                print("      ⚠️  Could not find reviews panel")
-                return []
-
-        scroll_attempts = 0
-        last_count = 0
-        no_new_count = 0
-        max_scroll_attempts = 30  # Increased but with timeout protection
-
-        while len(reviews) < max_reviews and scroll_attempts < max_scroll_attempts:
-            # Check timeout
-            if time.time() - start_time > max_scraping_time:
-                print(f"      ⏱️  Timeout: Stopped after {max_scraping_time}s")
-                break
-            
-            review_elements = await page.locator("div.jftiEf").all()
-            
-            if not review_elements:
-                # No reviews found, try scrolling once more
-                if reviews_panel:
-                    try:
-                        await reviews_panel.evaluate("el => el.scrollBy(0, 1000)")
-                        await sleep(1000)
-                    except:
-                        pass
-                scroll_attempts += 1
+                # Only add reviews with actual text content (not empty/whitespace)
+                text_clean = text.strip() if text else ""
+                if text_clean and len(text_clean) > 3:  # Must have at least 3 characters
+                    # Check for duplicates
+                    if not any(r["text"].strip() == text_clean for r in reviews):
+                        reviews.append({
+                            "reviewer_name": reviewer.strip(), 
+                            "rating": rating, 
+                            "text": text_clean, 
+                            "date": date.strip()
+                        })
+            except Exception as e:
                 continue
-
-            reviews_before = len(reviews)
-            
-            for el in review_elements:
-                if len(reviews) >= max_reviews:
-                    break
-                try:
-                    # Expand "More" button if present
-                    try:
-                        more_btn = el.locator("button.w8nwRe")
-                        if await more_btn.is_visible(timeout=200):
-                            await more_btn.click()
-                            await sleep(200)
-                    except:
-                        pass
-
-                    # Extract review data
-                    reviewer = await el.locator("div.d4r55").text_content() or "Anonymous"
-                    rating = 0
-                    try:
-                        rating_attr = await el.locator("span.kvMYJc").get_attribute("aria-label")
-                        if rating_attr:
-                            match = re.search(r"(\d)", rating_attr)
-                            if match:
-                                rating = int(match.group(1))
-                    except:
-                        pass
-                    
-                    # Get review text - try multiple selectors
-                    text = ""
-                    text_selectors = [
-                        "span.wiI7pd",
-                        "span[data-value]",
-                        "div.MyEned",
-                    ]
-                    for selector in text_selectors:
-                        try:
-                            text_elem = el.locator(selector).first
-                            if await text_elem.is_visible(timeout=100):
-                                text = await text_elem.text_content() or ""
-                                if text.strip():
-                                    break
-                        except:
-                            continue
-                    
-                    date = await el.locator("span.rsqaWe").text_content() or ""
-
-                    # Only add reviews with actual text content (not empty/whitespace)
-                    text_clean = text.strip() if text else ""
-                    if text_clean and len(text_clean) > 3:  # Must have at least 3 characters
-                        # Check for duplicates
-                        if not any(r["text"].strip() == text_clean for r in reviews):
-                            reviews.append({
-                                "reviewer_name": reviewer.strip(), 
-                                "rating": rating, 
-                                "text": text_clean, 
-                                "date": date.strip()
-                            })
-                except Exception as e:
-                    # Skip this review element if there's an error
-                    continue
-
-            # Check if we got new reviews
-            if len(reviews) == last_count:
-                no_new_count += 1
-                if no_new_count >= 5:  # Increased threshold before giving up
-                    print(f"      ⚠️  No new reviews found after {no_new_count} attempts, stopping")
-                    break
-            else:
-                no_new_count = 0
-            
-            last_count = len(reviews)
-
-            # Scroll to load more reviews
-            if reviews_panel and len(reviews) < max_reviews:
-                try:
-                    await reviews_panel.evaluate("el => el.scrollBy(0, 800)")
-                    await sleep(800)  # Wait for new content to load
-                except Exception as e:
-                    print(f"      ⚠️  Scroll error: {e}")
-                    break
-            
+        
+        # Check if we got new reviews
+        if len(reviews) == reviews_before:
             scroll_attempts += 1
-            
-            # Check for verification periodically
-            if scroll_attempts % 5 == 0:
-                await check_and_handle_google_verification(page)
-                
-    except Exception as e:
-        print(f"      ⚠️  Error scraping reviews: {e}")
+        else:
+            scroll_attempts = 0
+        
+        # Scroll to load more reviews
+        if len(reviews) < max_reviews:
+            try:
+                # Scroll the reviews container
+                await page.evaluate("""
+                    const reviewList = document.querySelector('div[role="feed"]');
+                    if (reviewList) {
+                        reviewList.scrollTop = reviewList.scrollHeight;
+                    }
+                """)
+                await asyncio.sleep(1.5)
+            except:
+                break
     
-    # Filter out any empty reviews that might have slipped through
-    reviews = [r for r in reviews if r.get("text", "").strip() and len(r.get("text", "").strip()) > 3]
-    
-    # Sort reviews by rating (lowest first) to prioritize worst reviews
+    # Sort by rating (lowest first - most likely to be violations)
     reviews.sort(key=lambda x: x["rating"])
     
     print(f"      ✅ Collected {len(reviews)} reviews with text")
-    return reviews[:max_reviews]
+
 
 
 #######################################################################
@@ -832,7 +566,6 @@ def save_lead_incrementally(lead: dict, output_dir: str, timestamp: str, area: s
             row[f"review_{i+1}_confidence"] = ""
             row[f"review_{i+1}_rating"] = ""
             row[f"review_{i+1}_reviewer"] = ""
-            row[f"review_{i+1}_date"] = ""
     
     # Append to CSV (create if doesn't exist)
     file_exists = os.path.exists(csv_path)
@@ -866,32 +599,32 @@ def print_violation_details(lead: dict, flagged_reviews: list):
 
 
 async def install_playwright_browsers_if_needed(progress_callback=None):
-    """Install Playwright browsers if they don't exist - LOCAL USE ONLY"""
-    import subprocess
-    import sys
-    import asyncio
+    """Check if Playwright browsers are installed - don't auto-install"""
     import os
-    import glob
     import platform
+    import glob
     
-    # Check multiple possible browser paths based on OS
+    # Skip in cloud environments - they should install during build
+    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RENDER") or os.getenv("STREAMLIT_SERVER_PORT"):
+        return True
+    
+    # Check common installation paths
     system = platform.system()
     
     if system == "Windows":
-        # Windows paths
+        local_appdata = os.getenv("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local"))
         possible_paths = [
-            os.path.expanduser("~\\AppData\\Local\\ms-playwright\\chromium-*\\chrome-win\\chrome.exe"),
-            os.path.expanduser("~\\AppData\\Local\\ms-playwright\\chromium_headless_shell-*\\chrome-win\\chrome.exe"),
+            os.path.join(local_appdata, "ms-playwright", "chromium-*", "chrome-win", "chrome.exe"),
         ]
     elif system == "Darwin":  # macOS
         possible_paths = [
-            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
-            os.path.expanduser("~/Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
+            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-mac/Chromium.app"),
+            os.path.expanduser("~/Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app"),
         ]
     else:  # Linux
         possible_paths = [
-            os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"),
             os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+            os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"),
         ]
     
     # Check if any browser exists
@@ -899,104 +632,50 @@ async def install_playwright_browsers_if_needed(progress_callback=None):
         try:
             matches = glob.glob(path_pattern)
             if matches:
-                # Verify the file actually exists (glob might match directories)
+                # Verify it exists
                 for match in matches:
-                    if os.path.isfile(match) or (os.path.isdir(match) and system == "Darwin"):
-                        # Browsers found - return silently (don't spam messages)
+                    if os.path.isfile(match) or os.path.isdir(match):
+                        # Browsers found - return silently
                         return True
         except Exception:
-            # If glob fails, continue to next pattern
             continue
     
-    # Browsers not found, try to install them (only for local use)
-    # Skip in cloud environments - they should install during build
-    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RENDER") or os.getenv("STREAMLIT_SERVER_PORT"):
-        # In cloud, browsers should be pre-installed
-        print("⚠️  Cloud environment detected - browsers should be pre-installed")
-        return True
-    
-    # Local installation - only if browsers are truly missing
-    # Don't install automatically - let user know they need to install manually
-    print("⚠️  Playwright browsers not found!")
-    print("💡 Please install manually by running:")
-    print("   python -m playwright install chromium")
-    print("   OR")
-    print("   python install_browsers.py")
-    
+    # Browsers not found - don't auto-install, just return False
     if progress_callback is not None:
         progress_callback({"status": "error", "message": "Playwright browsers not found. Please run: python -m playwright install chromium"})
     
-    # Don't auto-install - return False so user knows to install manually
     return False
+
 
 async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
     """
-    Run the scraper for given zip codes.
+    Main scraper function
     
     Args:
-        zip_codes: List of zip codes (e.g., ["75001", "75002"])
-        progress_callback: Optional function to call with progress updates (for dashboard)
-        filters: Optional dict with filter values (min_rating, max_rating, min_reviews, country, etc.)
+        zip_codes: List of zip codes to scrape (e.g., ["92100", "92200"])
+        progress_callback: Optional callback function for progress updates
+        filters: Optional dict with min_rating, max_rating, min_reviews, etc.
+    
+    Returns:
+        Tuple of (leads_list, training_data_dict, stats_dict)
     """
-    if zip_codes is None:
-        zip_codes = AREAS  # Fallback for backward compatibility
+    if not zip_codes:
+        zip_codes = ["92100", "92200"]  # Default
     
-    # Get country from filters or default
-    country = filters.get("country", "France") if filters else "France"
+    if not filters:
+        filters = {
+            "min_rating": MIN_RATING,
+            "max_rating": MAX_RATING,
+            "min_reviews": MIN_REVIEWS,
+            "max_reviews_per_business": MAX_REVIEWS_PER_BUSINESS,
+            "min_violations_to_stop": MIN_VIOLATIONS_TO_STOP,
+        }
     
-    # Use filters from parameter or defaults
-    if filters:
-        min_rating = filters.get("min_rating", MIN_RATING)
-        max_rating = filters.get("max_rating", MAX_RATING)
-        min_reviews = filters.get("min_reviews", MIN_REVIEWS)
-        max_reviews_per_business = filters.get("max_reviews_per_business", MAX_REVIEWS_PER_BUSINESS)
-        min_violations_to_stop = filters.get("min_violations_to_stop", MIN_VIOLATIONS_TO_STOP)
-    else:
-        min_rating = MIN_RATING
-        max_rating = MAX_RATING
-        min_reviews = MIN_REVIEWS
-        max_reviews_per_business = MAX_REVIEWS_PER_BUSINESS
-        min_violations_to_stop = MIN_VIOLATIONS_TO_STOP
-    
-    all_leads = []
-    # Removed training_data collection for optimization - uncomment if needed
-    # all_training_data = []
-    stats = {"found": 0, "processed": 0, "filtered": 0, "reviews": 0, "violations": 0, "leads": 0, "reviews_skipped": 0}
-    
-    # Track processed businesses to avoid duplicates across categories
-    processed_businesses = {}  # key: business URL, value: business details
-    
-    # Create output directory and timestamp for incremental saving
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-
-    # Use categories from filters if provided, otherwise use defaults
-    if filters and "categories" in filters and filters["categories"]:
-        categories_to_scrape = filters["categories"]
-    else:
-        # Default: use TIERS_TO_SCRAPE
-        categories_to_scrape = []
-        for tier in TIERS_TO_SCRAPE:
-            for cat in CATEGORIES[tier]:
-                categories_to_scrape.append({"name": cat, "tier": tier})
-
-    print("=" * 60)
-    print("  🛡️  VARDA Lead Generation Scraper")
-    print("=" * 60)
-    print(f"  📍 Zip codes: {zip_codes}")
-    print(f"  🌍 Country: {country}")
-    print(f"  🏷️  Categories: {len(categories_to_scrape)}")
-    print(f"  ⭐ Rating: {min_rating} - {max_rating}")
-    print(f"  📝 Min reviews: {min_reviews}")
-    print(f"  📁 Results saved to: {OUTPUT_DIR}/violations_leads_*_{timestamp}.csv")
-    print("=" * 60)
+    country = filters.get("country", "France")
+    categories = filters.get("categories", ALL_CATEGORIES)
     
     if progress_callback:
-        progress_callback({
-            "status": "starting", 
-            "message": f"Starting scraper for {len(zip_codes)} zip code(s)",
-            "zip_codes_count": len(zip_codes)
-        })
+        progress_callback({"status": "starting", "message": "Starting scraper..."})
     
     # Check if Playwright browsers are installed (don't auto-install)
     browsers_installed = await install_playwright_browsers_if_needed(progress_callback)
@@ -1034,365 +713,211 @@ async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
         )
         page = await browser.new_page()
         
-        # Remove webdriver property and other automation indicators
+        # Set extra headers to avoid detection
+        await page.set_extra_http_headers({
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        })
+        
+        # Inject script to remove webdriver property
         await page.add_init_script("""
-            // Remove webdriver property
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined
             });
-            
-            // Override language properties
-            Object.defineProperty(navigator, 'language', {
-                get: function() { return 'en-US'; }
-            });
-            Object.defineProperty(navigator, 'languages', {
-                get: function() { return ['en-US', 'en']; }
-            });
-            
-            // Remove automation indicators
-            delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
-            delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
-            delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
-            
-            // Override permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
-            
-            // Override plugins
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
-            });
         """)
         
-        # Set user agent to a real browser
-        await page.set_extra_http_headers({
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        })
-
+        leads = []
+        training_data = {"violations": [], "non_violations": []}
+        stats = {
+            "total_businesses_found": 0,
+            "total_businesses_processed": 0,
+            "total_reviews_scraped": 0,
+            "total_violations_found": 0,
+            "total_leads": 0,
+        }
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        
         try:
             for zip_code in zip_codes:
-                print(f"\n📮 ZIP CODE: {zip_code}")
-                print("-" * 50)
-                
                 if progress_callback:
                     progress_callback({"status": "area_start", "area": zip_code, "message": f"Processing zip code: {zip_code}"})
-
-                for cat_info in categories_to_scrape:
-                    category = cat_info["name"]
-                    tier = cat_info["tier"]
-                    print(f"\n🏷️  {category.upper()} (Tier {tier})")
+                
+                for category in categories:
+                    if progress_callback:
+                        progress_callback({"status": "category_start", "category": category, "message": f"Processing category: {category}"})
+                    
+                    # Scrape businesses for this zip code and category
+                    businesses = await scrape_all_businesses(
+                        page, zip_code, category, country,
+                        filters["min_rating"], filters["max_rating"], filters["min_reviews"],
+                        progress_callback
+                    )
+                    
+                    stats["total_businesses_found"] += len(businesses)
                     
                     if progress_callback:
-                        progress_callback({"status": "category_start", "category": category, "message": f"Searching {category} in {zip_code}"})
-
-                    # Scrape businesses with IMMEDIATE filtering - rating extracted from search results
-                    businesses = await scrape_all_businesses(page, zip_code, category, country, min_rating, max_rating, min_reviews, progress_callback)
+                        progress_callback({"status": "businesses_found", "count": len(businesses), "message": f"Found {len(businesses)} businesses for {category} in {zip_code}"})
                     
-                    # Count total found (before filtering) - we'll estimate based on what we filtered
-                    # Note: We can't know total without filtering, so we'll track filtered separately
-                    total_scraped = len(businesses)  # These are already filtered
-                    stats["found"] += total_scraped
-                    
-                    if progress_callback:
-                        progress_callback({"status": "businesses_found", "count": total_scraped, "message": f"Found {total_scraped} businesses matching criteria"})
-
-                    if not businesses:
-                        continue
-
-                    # Process businesses - they're already filtered, just get full details
-                    print(f"\n   📊 Processing {len(businesses)} businesses (already filtered)...")
-                    if progress_callback:
-                        progress_callback({"status": "collecting_details", "current": 0, "total": len(businesses), "message": f"Processing {len(businesses)} businesses"})
-                    
-                    for i, biz in enumerate(businesses):
-                        name_short = biz['name'][:35] + "..." if len(biz['name']) > 35 else biz['name']
-                        rating = biz.get("rating", 0.0)
-                        review_count = biz.get("review_count", 0)
-                        
-                        # Check if this business was already processed in another category
-                        biz_url = biz.get("url", "")
-                        if biz_url in processed_businesses:
-                            continue
-                        
-                        print(f"\n   [{i+1}/{len(businesses)}] {name_short}")
-                        print(f"      ⭐ {rating} | 📝 {review_count} reviews")
-                        
+                    # Process each business
+                    for idx, business in enumerate(businesses, 1):
                         if progress_callback:
-                            progress_callback({
-                                "status": "business_processing",
-                                "current": i + 1,
-                                "total": len(businesses),
-                                "business_name": name_short,
-                                "message": f"Processing business {i+1}/{len(businesses)}: {name_short}"
-                            })
+                            progress_callback({"status": "business_processing", "business_name": business["name"], "current": idx, "total": len(businesses), "message": f"Processing {business['name']} ({idx}/{len(businesses)})"})
                         
-                        # Get full business details (address, phone, website, etc.)
-                        details = await scrape_business_details(page, biz)
-                        if not details:
-                            continue
-                        
-                        # Update with rating/review count from search results (more accurate)
-                        details["rating"] = rating
-                        details["review_count"] = review_count
-                        
-                        # Mark this business as processed
-                        processed_businesses[biz_url] = details
-
-                        stats["processed"] += 1
-
-                        # Email - scrape if website is available
-                        if details["website"]:
-                            print(f"      🌐 Checking website for email...")
-                            email = await scrape_email_from_website(page, details["website"])
-                            details["email"] = email
-                            if email:
-                                print(f"      📧 Found: {email}")
-
-                        # Reviews - add hl=en to force English
-                        review_url = biz["url"]
-                        if "hl=" not in review_url:
-                            separator = "&" if "?" in review_url else "?"
-                            review_url = f"{review_url}{separator}hl=en"
-                        
-                        if not await safe_goto(page, review_url):
+                        try:
+                            # Get business details
+                            details = await scrape_business_details(page, business["url"])
+                            business.update(details)
+                            
+                            # Scrape reviews
                             if progress_callback:
-                                progress_callback({
-                                    "status": "error",
-                                    "message": f"⚠️ Could not load reviews page for {name_short}"
-                                })
-                            continue
-                        print(f"      📝 Scraping reviews (sorted by worst rating first)...")
-                        if progress_callback:
-                            progress_callback({
-                                "status": "scraping_reviews",
-                                "message": f"📝 Scraping reviews for {name_short}..."
-                            })
-                        reviews = await scrape_reviews(page, max_reviews_per_business)
-                        print(f"      📝 Got {len(reviews)} reviews")
-                        if progress_callback:
-                            progress_callback({
-                                "status": "reviews_collected",
-                                "count": len(reviews),
-                                "message": f"📝 Collected {len(reviews)} reviews for {name_short}"
-                            })
-                        
-                        # Show rating distribution
-                        if reviews:
-                            rating_dist = {}
-                            for r in reviews:
-                                rating_dist[r["rating"]] = rating_dist.get(r["rating"], 0) + 1
-                            dist_str = ", ".join([f"{k}⭐: {v}" for k, v in sorted(rating_dist.items())])
-                            print(f"      📊 Rating distribution: {dist_str}")
-
-                        if not reviews:
-                            continue
-
-                        # Classify (reviews already sorted by worst rating first)
-                        # OPTIMIZATION: Stop early once we find enough violations
-                        print(f"      🤖 Classifying reviews (stopping after {min_violations_to_stop} violations)...")
-                        flagged_reviews = []
-                        reviews_classified = 0
-
-                        if progress_callback:
-                            progress_callback({
-                                "status": "classifying_reviews",
-                                "message": f"🤖 Classifying {len(reviews)} reviews for {name_short}..."
-                            })
-                        for j, review in enumerate(reviews):
-                            print(f"         {j+1}/{len(reviews)} ({review['rating']}⭐)...", end="\r")
-                            if progress_callback and j % 3 == 0:  # Update every 3rd review to avoid spam
-                                progress_callback({
-                                    "status": "classifying_reviews",
-                                    "current": j + 1,
-                                    "total": len(reviews),
-                                    "message": f"🤖 Classifying review {j+1}/{len(reviews)} for {name_short}..."
-                                })
-                            classification = classify_review(review["reviewer_name"], review["rating"], review["text"], review["date"])
-                            stats["reviews"] += 1
-                            reviews_classified += 1
-
-                            # Only save to training data if violation found (saves space/time)
-                            if classification["has_violation"]:
-                                stats["violations"] += 1
-                                flagged_reviews.append({**review, "classification": classification})
-                                
+                                progress_callback({"status": "scraping_reviews", "business_name": business["name"], "message": f"Scraping reviews for {business['name']}..."})
+                            
+                            reviews = await scrape_reviews(page, filters["max_reviews_per_business"])
+                            stats["total_reviews_scraped"] += len(reviews)
+                            
+                            if progress_callback:
+                                progress_callback({"status": "reviews_collected", "count": len(reviews), "message": f"Collected {len(reviews)} reviews"})
+                            
+                            # Classify reviews
+                            if progress_callback:
+                                progress_callback({"status": "classifying_reviews", "current": 0, "total": len(reviews), "message": "Classifying reviews..."})
+                            
+                            flagged_reviews = []
+                            violation_count = 0
+                            
+                            for review_idx, review in enumerate(reviews, 1):
                                 if progress_callback:
-                                    progress_callback({
-                                        "status": "violation_found",
-                                        "violation_count": len(flagged_reviews),
-                                        "message": f"🚩 Violation #{len(flagged_reviews)} found in {name_short}'s reviews"
-                                    })
+                                    progress_callback({"status": "classifying_reviews", "current": review_idx, "total": len(reviews), "message": f"Classifying review {review_idx}/{len(reviews)}"})
                                 
-                                # Early exit: if we found enough violations, stop classifying
-                                if len(flagged_reviews) >= min_violations_to_stop:
-                                    remaining = len(reviews) - (j + 1)
-                                    stats["reviews_skipped"] = stats.get("reviews_skipped", 0) + remaining
-                                    print(f"         ✅ Found {len(flagged_reviews)} violations, stopping early...", end="\r")
+                                classification = classify_review(review["text"], review["rating"])
+                                
+                                if classification["is_violation"]:
+                                    review["classification"] = classification
+                                    flagged_reviews.append(review)
+                                    violation_count += 1
+                                    
                                     if progress_callback:
-                                        progress_callback({
-                                            "status": "info",
-                                            "message": f"✅ Found {min_violations_to_stop} violations, stopping analysis"
-                                        })
-                                    break
-
-                            await sleep(100)
-
-                        print(f"                              ", end="\r")
-                        if reviews_classified < len(reviews):
-                            print(f"      ⚡ Optimized: Classified {reviews_classified}/{len(reviews)} reviews (found violations early)")
-
-                        if flagged_reviews:
-                            print(f"      🚩 {len(flagged_reviews)} violations found!")
-                            stats["leads"] += 1
+                                        progress_callback({"status": "violation_found", "violation_count": violation_count, "message": f"Violation found! ({violation_count} total)"})
+                                    
+                                    # Stop if we found enough violations
+                                    if violation_count >= filters["min_violations_to_stop"]:
+                                        break
                             
-                            # Create lead object
-                            lead = {
-                                "name": details["name"], "email": details["email"],
-                                "website": details["website"], "phone": details["phone"],
-                                "address": details["address"], "google_maps_url": details["google_maps_url"],
-                                "rating": rating, "review_count": review_count,
-                                "category": category, "tier": tier, "zip_code": zip_code,
-                                "flagged_reviews": flagged_reviews,
-                            }
-                            
-                            all_leads.append(lead)
-                            
-                            # Print detailed violation information to console
-                            print_violation_details(lead, flagged_reviews)
-                            
-                            if progress_callback:
-                                progress_callback({
-                                    "status": "lead_found",
-                                    "lead": lead,
-                                    "violations_count": len(flagged_reviews),
-                                    "message": f"🚩 LEAD FOUND: {lead['name']} - {len(flagged_reviews)} violation(s) detected!"
-                                })
-                            
-                            # Save immediately to CSV for real-time viewing
-                            try:
+                            # If we found violations, this is a lead
+                            if flagged_reviews:
+                                # Try to get email from website
+                                email = ""
+                                if business.get("website"):
+                                    if progress_callback:
+                                        progress_callback({"status": "info", "message": f"Scraping email from {business.get('website', '')}"})
+                                    email = await scrape_email_from_website(page, business["website"])
+                                
+                                lead = {
+                                    "name": business["name"],
+                                    "website": business.get("website", ""),
+                                    "email": email,
+                                    "phone": business.get("phone", ""),
+                                    "rating": business.get("rating", 0.0),
+                                    "review_count": business.get("review_count", 0),
+                                    "flagged_reviews": flagged_reviews,
+                                    "zip_code": zip_code,
+                                    "category": category,
+                                }
+                                
+                                leads.append(lead)
+                                stats["total_violations_found"] += len(flagged_reviews)
+                                stats["total_leads"] += 1
+                                
+                                # Save immediately
                                 save_lead_incrementally(lead, OUTPUT_DIR, timestamp, zip_code)
-                                csv_filename = f"violations_leads_{zip_code}_{timestamp}.csv"
-                                print(f"      💾 Saved to: {OUTPUT_DIR}/{csv_filename}")
                                 
                                 if progress_callback:
-                                    progress_callback({
-                                        "status": "lead_found",
-                                        "lead": lead,
-                                        "total_leads": len(all_leads),
-                                        "message": f"Found violation: {lead['name']}"
-                                    })
-                            except Exception as e:
-                                print(f"      ⚠️  Error saving incrementally: {e}")
-                        else:
-                            print(f"      ✅ No violations")
-
-        finally:
-            # Don't close persistent context, just close pages
-            await browser.close()
-
-    if progress_callback:
-        progress_callback({"status": "completed", "stats": stats, "leads": all_leads, "message": "Scraping completed!"})
-    
-    return all_leads, [], stats  # Return empty training_data list
-
-
-#######################################################################
-# EXPORT FUNCTIONS
-#######################################################################
-
-def export_leads(leads: list, training_data: list):
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-
-    # Optimized CSV output - exactly what you need for email outreach
-    if leads:
-        rows = []
-        for lead in leads:
-            flagged = lead.get("flagged_reviews", [])
+                                    progress_callback({"status": "lead_found", "lead": lead, "violations_count": len(flagged_reviews), "message": f"🚩 LEAD FOUND: {business['name']} ({len(flagged_reviews)} violations)"})
+                                
+                                print_violation_details(lead, flagged_reviews)
+                            
+                            stats["total_businesses_processed"] += 1
+                            
+                        except Exception as e:
+                            print(f"      Error processing business {business.get('name', 'unknown')}: {e}")
+                            continue
+                    
+                    await asyncio.sleep(1)  # Small delay between categories
+                
+                await asyncio.sleep(2)  # Small delay between zip codes
             
-            # Take top 3 violations (already sorted by worst rating first)
-            top_violations = flagged[:3]
-            
-            row = {
-                "business_name": lead["name"],
-                "website_url": lead.get("website", ""),
-                "email": lead.get("email", ""),
-                "phone": lead.get("phone", ""),
-                "violations_count": len(flagged),
-            }
-            
-            # Add 3 sample reviews with reason and confidence
-            for i in range(3):
-                if i < len(top_violations):
-                    v = top_violations[i]
-                    row[f"review_{i+1}_text"] = v["text"]
-                    row[f"review_{i+1}_reason"] = v["classification"]["reasoning"]
-                    row[f"review_{i+1}_confidence"] = round(v["classification"]["confidence"], 2)
-                    row[f"review_{i+1}_rating"] = v["rating"]
-                    row[f"review_{i+1}_reviewer"] = v["reviewer_name"]
-                    row[f"review_{i+1}_date"] = v["date"]
-                else:
-                    row[f"review_{i+1}_text"] = ""
-                    row[f"review_{i+1}_reason"] = ""
-                    row[f"review_{i+1}_confidence"] = ""
-                    row[f"review_{i+1}_rating"] = ""
-                    row[f"review_{i+1}_reviewer"] = ""
-                    row[f"review_{i+1}_date"] = ""
-            
-            rows.append(row)
-
-        df = pd.DataFrame(rows)
-        csv_path = f"{OUTPUT_DIR}/violations_leads_{timestamp}.csv"
-        df.to_csv(csv_path, index=False)
-        print(f"✅ Violations CSV: {csv_path} ({len(rows)} businesses with violations)")
+            if progress_callback:
+                progress_callback({"status": "completed", "stats": stats, "message": "Scraping completed!"})
         
-        # Also create a detailed JSON file with all violation details for reference
-        json_path = f"{OUTPUT_DIR}/violations_details_{timestamp}.json"
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(leads, f, indent=2, ensure_ascii=False)
-        print(f"✅ Detailed JSON: {json_path}")
-
-    # Training data (optional - comment out if not needed)
-    # if training_data:
-    #     jsonl_path = f"{OUTPUT_DIR}/training_data_{timestamp}.jsonl"
-    #     with open(jsonl_path, 'w', encoding='utf-8') as f:
-    #         for item in training_data:
-    #             f.write(json.dumps({"text": item["text"], "rating": item["rating"],
-    #                 "label": 1 if item["has_violation"] else 0,
-    #                 "violation_types": item["violation_types"],
-    #                 "confidence": item["confidence"], "reasoning": item["reasoning"]}, ensure_ascii=False) + '\n')
-    #     print(f"✅ Training JSONL: {jsonl_path} ({len(training_data)} samples)")
+        finally:
+            await browser.close()
+    
+    return leads, training_data, stats
 
 
-#######################################################################
-# RUN
-#######################################################################
+def export_leads(leads: list, output_dir: str = OUTPUT_DIR):
+    """Export leads to CSV and JSON files"""
+    if not leads:
+        print("No leads to export.")
+        return
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    
+    # Export to CSV
+    csv_data = []
+    for lead in leads:
+        flagged = lead.get("flagged_reviews", [])
+        top_violations = flagged[:3]
+        
+        row = {
+            "business_name": lead["name"],
+            "website_url": lead.get("website", ""),
+            "email": lead.get("email", ""),
+            "phone": lead.get("phone", ""),
+            "rating": lead.get("rating", 0.0),
+            "review_count": lead.get("review_count", 0),
+            "violations_count": len(flagged),
+            "zip_code": lead.get("zip_code", ""),
+            "category": lead.get("category", ""),
+        }
+        
+        for i in range(3):
+            if i < len(top_violations):
+                v = top_violations[i]
+                row[f"review_{i+1}_text"] = v["text"]
+                row[f"review_{i+1}_reason"] = v["classification"]["reasoning"]
+                row[f"review_{i+1}_confidence"] = round(v["classification"]["confidence"], 2)
+                row[f"review_{i+1}_rating"] = v["rating"]
+                row[f"review_{i+1}_reviewer"] = v["reviewer_name"]
+                row[f"review_{i+1}_date"] = v["date"]
+            else:
+                row[f"review_{i+1}_text"] = ""
+                row[f"review_{i+1}_reason"] = ""
+                row[f"review_{i+1}_confidence"] = ""
+                row[f"review_{i+1}_rating"] = ""
+                row[f"review_{i+1}_reviewer"] = ""
+                row[f"review_{i+1}_date"] = ""
+        
+        csv_data.append(row)
+    
+    df = pd.DataFrame(csv_data)
+    csv_path = f"{output_dir}/violations_leads_{timestamp}.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"\n✅ Exported {len(leads)} leads to {csv_path}")
+    
+    # Export to JSON
+    json_path = f"{output_dir}/violations_details_{timestamp}.json"
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(leads, f, indent=2, ensure_ascii=False)
+    print(f"✅ Exported detailed data to {json_path}")
+
 
 if __name__ == "__main__":
-    print("🚀 Starting scraper...\n")
-    start_time = time.time()
-
-    leads, training_data, stats = asyncio.run(run_scraper(areas=AREAS))
-
-    elapsed = time.time() - start_time
-    print("\n" + "=" * 60)
-    print("  📊 RESULTS")
-    print("=" * 60)
-    print(f"  ⏱️  Time: {int(elapsed//60)}m {int(elapsed%60)}s")
-    print(f"  🏢 Found: {stats['found']}")
-    print(f"  🔍 Processed: {stats['processed']}")
-    print(f"  📝 Reviews classified: {stats['reviews']}")
-    if stats.get('reviews_skipped', 0) > 0:
-        print(f"  ⚡ Reviews skipped (early exit): {stats['reviews_skipped']}")
-    print(f"  🚩 Violations found: {stats['violations']}")
-    print(f"  🎯 Businesses with violations: {stats['leads']}")
-    print(f"  💰 Potential: €{stats['violations'] * 24.99:.2f}")
-    print("=" * 60)
-
-    export_leads(leads, training_data)
-    print("\n✅ Done!")
+    # Example usage
+    zip_codes = ["92100", "92200"]
+    leads, training_data, stats = asyncio.run(run_scraper(zip_codes=zip_codes))
+    export_leads(leads)
+    print(f"\n📊 Stats: {stats}")

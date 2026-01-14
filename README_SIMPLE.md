@@ -192,6 +192,31 @@ python -m playwright install chromium
 
 **Windows users:** Try running PowerShell/CMD as Administrator
 
+### Can't delete Playwright browser folder (chromium-1200)
+
+If you can't delete the folder manually:
+
+**Option 1: Use the cleanup script (Recommended)**
+1. Right-click `cleanup_playwright.bat` → Run as Administrator
+2. It will kill processes, take ownership, and delete the folder
+
+**Option 2: Use PowerShell script**
+1. Right-click PowerShell → Run as Administrator
+2. Run: `.\delete_chromium.ps1`
+
+**Option 3: Manual PowerShell commands**
+```powershell
+# Run PowerShell as Administrator, then:
+taskkill /F /IM chrome.exe /T
+$path = "$env:LOCALAPPDATA\ms-playwright\chromium-1200"
+takeown /F $path /R /D Y
+icacls $path /grant "${env:USERNAME}:F" /T
+Remove-Item $path -Recurse -Force
+```
+
+**Option 4: Restart computer**
+Sometimes files are locked by Windows. Restart and try deleting again.
+
 ### "Module not found"
 
 ```bash

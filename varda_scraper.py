@@ -917,7 +917,11 @@ async def run_scraper(zip_codes=None, progress_callback=None, filters=None):
     print("=" * 60)
     
     if progress_callback:
-        progress_callback({"status": "starting", "message": f"Starting scraper for {len(zip_codes)} zip code(s)"})
+        progress_callback({
+            "status": "starting", 
+            "message": f"Starting scraper for {len(zip_codes)} zip code(s)",
+            "zip_codes_count": len(zip_codes)
+        })
 
     async with async_playwright() as p:
         # Use persistent browser context to maintain language and login settings

@@ -495,16 +495,16 @@ if st.session_state.scraping:
     
     # Only rerun if we processed updates or if there are more in queue
     # Use a small delay to prevent excessive reruns
-    queue_has_items = hasattr(st.session_state, 'progress_queue') and not st.session_state.progress_queue.empty()
+    queue_has_items = not _progress_queue.empty()
     if updates_processed > 0 or queue_has_items:
         # Small delay to batch updates
-        time.sleep(0.2)
+        time.sleep(0.1)
         st.rerun()
-    elif updates_processed == 0:
-        # No updates, but still scraping - refresh every 2 seconds to check for new updates
+    elif updates_processed == 0 and st.session_state.scraping:
+        # No updates, but still scraping - refresh every 1.5 seconds to check for new updates
         if 'last_refresh' not in st.session_state:
             st.session_state.last_refresh = time.time()
-        elif time.time() - st.session_state.last_refresh > 2.0:
+        elif time.time() - st.session_state.last_refresh > 1.5:
             st.session_state.last_refresh = time.time()
             st.rerun()
 
@@ -532,6 +532,17 @@ with col1:
                     st.session_state.current_business = None
                     st.session_state.current_category = None
                     st.session_state.current_area = None
+                    
+                    # Send initial progress message immediately
+                    import datetime
+                    initial_log = {
+                        "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
+                        "status": "starting",
+                        "message": "Starting scraper...",
+                        "data": {}
+                    }
+                    st.session_state.logs.append(initial_log)
+                    
                     # Prepare filter parameters
                     filters = {
                         "min_rating": min_rating,

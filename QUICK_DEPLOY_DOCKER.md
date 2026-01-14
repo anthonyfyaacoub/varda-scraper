@@ -4,7 +4,7 @@
 
 ## Step 1: Sign Up
 
-1. Go to: **https://railway.app**
+1. Go to: **https://r   ailway.app**
 2. Click **"Start a New Project"**
 3. Sign up with GitHub (free)
 
@@ -26,6 +26,8 @@ OPENAI_API_KEY = your_actual_api_key_here
 HEADLESS_MODE = true
 ACCESS_PASSWORD = your_password_here
 ```
+
+**⚠️ IMPORTANT:** Do NOT set `STREAMLIT_SERVER_PORT` - Railway provides `PORT` automatically, and our entrypoint script handles it.
 
 5. Click **"Add"**
 

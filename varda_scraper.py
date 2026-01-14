@@ -896,14 +896,17 @@ async def install_playwright_browsers_if_needed(progress_callback=None):
     
     # Check if any browser exists
     for path_pattern in possible_paths:
-        matches = glob.glob(path_pattern)
-        if matches:
-            # Verify the file actually exists (glob might match directories)
-            for match in matches:
-                if os.path.isfile(match) or (os.path.isdir(match) and system == "Darwin"):
-                    if progress_callback is not None:
-                        progress_callback({"status": "info", "message": "✅ Playwright browsers already installed"})
-                    return True
+        try:
+            matches = glob.glob(path_pattern)
+            if matches:
+                # Verify the file actually exists (glob might match directories)
+                for match in matches:
+                    if os.path.isfile(match) or (os.path.isdir(match) and system == "Darwin"):
+                        # Browsers found - return silently (don't spam messages)
+                        return True
+        except Exception:
+            # If glob fails, continue to next pattern
+            continue
     
     # Browsers not found, try to install them (only for local use)
     # Skip in cloud environments - they should install during build

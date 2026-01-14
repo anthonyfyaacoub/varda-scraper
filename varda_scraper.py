@@ -613,6 +613,18 @@ async def install_playwright_browsers_if_needed(progress_callback=None):
     
     if system == "Windows":
         local_appdata = os.getenv("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local"))
+        playwright_dir = os.path.join(local_appdata, "ms-playwright")
+        # Check if ms-playwright directory exists
+        if os.path.exists(playwright_dir):
+            # Look for any chromium folder
+            chromium_folders = [d for d in os.listdir(playwright_dir) if d.startswith("chromium-")]
+            if chromium_folders:
+                # Check if chrome.exe exists in any chromium folder
+                for folder in chromium_folders:
+                    chrome_exe = os.path.join(playwright_dir, folder, "chrome-win", "chrome.exe")
+                    if os.path.isfile(chrome_exe):
+                        return True
+        # Fallback: use glob pattern
         possible_paths = [
             os.path.join(local_appdata, "ms-playwright", "chromium-*", "chrome-win", "chrome.exe"),
         ]
